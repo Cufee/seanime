@@ -1,4 +1,5 @@
 import { VideoCore_VideoPlaybackInfo } from "@/app/(main)/_features/video-core/video-core.atoms"
+import { getMediaSessionSeekTime } from "@/app/(main)/_features/video-core/_lib/video-seeking"
 import { logger } from "@/lib/helpers/debug"
 import { atom } from "jotai"
 
@@ -156,14 +157,7 @@ export class VideoCoreMediaSessionManager {
             case "seekto":
             case "seekforward":
             case "seekbackward":
-                let seekTime: number
-                if (details.seekTime !== undefined) {
-                    seekTime = details.seekTime
-                } else {
-                    const currentTime = this.video?.currentTime || 0
-                    const offset = details.seekOffset || (details.action === "seekforward" ? 10 : -10)
-                    seekTime = currentTime + offset
-                }
+                const seekTime = getMediaSessionSeekTime(this.video?.currentTime || 0, details)
                 this.dispatch("media-seek-request", { seekTime })
                 break
         }

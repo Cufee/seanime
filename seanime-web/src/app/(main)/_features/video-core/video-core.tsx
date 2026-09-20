@@ -20,6 +20,7 @@ import { vc_videoSize } from "@/app/(main)/_features/video-core/video-core-atoms
 import { vc_realVideoSize } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { vc_duration } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { vc_currentTime } from "@/app/(main)/_features/video-core/video-core-atoms"
+import { vc_lastUserSeekTime } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { vc_playbackRate } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { vc_readyState } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { vc_buffering } from "@/app/(main)/_features/video-core/video-core-atoms"
@@ -220,6 +221,7 @@ export function VideoCoreProvider(props: { id: string, children: React.ReactNode
                 vc_realVideoSize,
                 vc_duration,
                 vc_currentTime,
+                vc_lastUserSeekTime,
                 vc_playbackRate,
                 vc_readyState,
                 vc_buffering,
@@ -933,7 +935,7 @@ export function VideoCore(props: VideoCoreProps) {
     function onAudioChange() {
         log.info("Audio changed", videoRef.current?.audioTracks)
         audioManager?.syncSelectedTrack()
-        action({ type: "seek", payload: { time: -1 } })
+        action({ type: "seek", payload: { time: -1, userInitiated: false } })
     }
 
     // Continuity
@@ -1568,9 +1570,7 @@ export function VideoCore(props: VideoCoreProps) {
         videoElement: videoRef.current,
         containerElement: containerRef.current,
         onSeek: (time) => {
-            if (videoRef.current) {
-                videoRef.current.currentTime = time
-            }
+            action({ type: "seekTo", payload: { time } })
         },
     })
 

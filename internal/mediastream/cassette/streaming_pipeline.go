@@ -2,10 +2,13 @@ package cassette
 
 import (
 	"context"
+	"encoding/csv"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"seanime/internal/util"
+	"strconv"
 	"strings"
 )
 
@@ -144,6 +147,7 @@ func (p *Pipeline) encodeStreamingSegment(ctx context.Context, seg int32) (strin
 	if p.kind == VideoKind {
 		delta = "0.05"
 	}
+	segmentList := filepath.Join(tmpDir, "segments.csv")
 	args = append(args, "-muxdelay", "0", "-f", "segment",
 		"-segment_format", "mpegts", "-segment_time_delta", delta,
 		// Both muxers must retain timestamps: otherwise the first segment's
@@ -151,6 +155,7 @@ func (p *Pipeline) encodeStreamingSegment(ctx context.Context, seg int32) (strin
 		"-avoid_negative_ts", "disabled",
 		"-segment_format_options", "mpegts_copyts=1:avoid_negative_ts=disabled",
 		"-segment_times", toSegmentStr(relative),
+		"-segment_list", segmentList, "-segment_list_type", "csv",
 		"-segment_start_number", fmt.Sprint(first), filepath.Join(tmpDir, "%d.ts"))
 	cmd := util.NewCmdCtx(ctx, p.settings.FfmpegPath, args...)
 	var stderr strings.Builder
@@ -171,12 +176,49 @@ func (p *Pipeline) encodeStreamingSegment(ctx context.Context, seg int32) (strin
 	if err != nil || stat.Size() == 0 {
 		return "", fmt.Errorf("cassette: encoder did not produce %s segment %d", p.label, seg)
 	}
+	// FFmpeg can exit successfully after an interrupted HTTP read, leaving a
+	// valid but incomplete transport stream. Only publish segments whose muxed
+	// packets reach the advertised end; a later request can retry failed input.
+	// The final audio/video track may naturally end before the container does.
+	// Permit that shorter tail only after a clean encode with no logged errors.
+	allowShortTail := seg == length-1 && stderr.Len() == 0
+	if err := validateStreamingSegmentEnd(segmentList, filepath.Base(output), end, allowShortTail); err != nil {
+		return "", fmt.Errorf("cassette: %s segment %d: %w", p.label, seg, err)
+	}
 	final := fmt.Sprintf(p.outPathFmt(0), seg)
 	if err := os.Rename(output, final); err != nil {
 		return "", err
 	}
 	p.segments.MarkReady(seg, 0)
 	return final, nil
+}
+
+func validateStreamingSegmentEnd(listPath, name string, end float64, allowShortTail bool) error {
+	data, err := os.ReadFile(listPath)
+	if err != nil {
+		return fmt.Errorf("cannot read segment timestamps: %w", err)
+	}
+	rows, err := csv.NewReader(strings.NewReader(string(data))).ReadAll()
+	if err != nil {
+		return fmt.Errorf("cannot parse segment timestamps: %w", err)
+	}
+	for _, row := range rows {
+		if len(row) != 3 || row[0] != name {
+			continue
+		}
+		actual, err := strconv.ParseFloat(row[2], 64)
+		if err != nil || math.IsNaN(actual) || math.IsInf(actual, 0) {
+			return fmt.Errorf("invalid segment end timestamp")
+		}
+		// AAC framing and container timestamp precision can end a segment a
+		// fraction of a frame early. The final segment uses its actual VOD end,
+		// so a legitimate final segment shorter than four seconds still passes.
+		if actual < end-0.1 && !allowShortTail {
+			return fmt.Errorf("incomplete segment: ends at %.3fs, expected %.3fs", actual, end)
+		}
+		return nil
+	}
+	return fmt.Errorf("missing segment end timestamp")
 }
 
 func slicesContainPair(args []string, flag, value string) bool {

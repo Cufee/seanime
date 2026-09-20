@@ -708,7 +708,11 @@ func (s *BaseStream) Terminate() {
 func (s *BaseStream) StreamError(err error) {
 	s.logger.Error().Err(err).Msg("directstream: Stream error occurred")
 	s.manager.playbackMu.Lock()
-	if !s.manager.isCurrentStreamLocked(s) {
+	stream, ok := s.manager.currentStream.Get()
+	// This method is promoted by TorrentStream, LocalFileStream, and the other
+	// concrete streams. Compare the embedded base, then retain the outer stream
+	// so unloading invokes its termination callback and identity guard.
+	if !ok || stream.GetBaseStream() != s {
 		s.manager.playbackMu.Unlock()
 		return
 	}
@@ -716,7 +720,7 @@ func (s *BaseStream) StreamError(err error) {
 	s.manager.playbackMu.Unlock()
 
 	s.manager.streamError(s.clientId, err, target)
-	s.manager.unloadStream(s)
+	s.manager.unloadStream(stream)
 }
 
 func (s *BaseStream) GetBaseStream() *BaseStream {

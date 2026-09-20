@@ -102,7 +102,7 @@ export function VideoCoreAudioMenu() {
                     })}
                     onValueChange={(value: number) => {
                         audioManager?.selectTrack(value)
-                        action({ type: "seek", payload: { time: -1 } })
+                        action({ type: "seek", payload: { time: -1, userInitiated: false } })
                     }}
                     value={selectedTrack || 0}
                 />

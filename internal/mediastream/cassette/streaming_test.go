@@ -1,6 +1,7 @@
 package cassette
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -272,6 +273,11 @@ func runStreamingCommand(t *testing.T, binary string, args ...string) []byte {
 
 func assertStreamingSegment(t *testing.T, path, codec string, target float64) (float64, float64) {
 	t.Helper()
+	return assertStreamingSegmentDuration(t, path, codec, target, 4)
+}
+
+func assertStreamingSegmentDuration(t *testing.T, path, codec string, target, duration float64) (float64, float64) {
+	t.Helper()
 	var probe struct {
 		Streams []struct {
 			CodecName string `json:"codec_name"`
@@ -304,11 +310,188 @@ func assertStreamingSegment(t *testing.T, path, codec string, target float64) (f
 		duration, _ := strconv.ParseFloat(packet.Duration, 64)
 		first, last = math.Min(first, pts), math.Max(last, pts+duration)
 	}
-	if math.Abs(first-target) > 0.08 || math.Abs(last-(target+4)) > 0.08 {
+	if math.Abs(first-target) > 0.08 || math.Abs(last-(target+duration)) > 0.08 {
 		t.Fatalf("segment does not cover requested source time %.3f: %.3f..%.3f (%s)", target, first, last, path)
 	}
 	runStreamingCommand(t, "ffmpeg", "-v", "error", "-xerror", "-i", path, "-f", "null", "-")
 	return first, last
+}
+
+func TestStreamingSessionRetriesTruncatedSource(t *testing.T) {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("FFprobe is required for streaming integration tests")
+	}
+	c := streamingTestCassette(t)
+	input := filepath.Join(t.TempDir(), "source.mkv")
+	runStreamingCommand(t, "ffmpeg", "-v", "error",
+		"-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24:duration=9",
+		"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=9",
+		"-c:v", "libx264", "-preset", "ultrafast", "-profile:v", "main", "-level:v", "4.0",
+		"-bf", "2", "-g", "96", "-c:a", "flac", "-y", input)
+	source, err := os.ReadFile(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var probe struct {
+		Packets []struct {
+			PTS string `json:"pts_time"`
+			Pos string `json:"pos"`
+		} `json:"packets"`
+	}
+	if err := json.Unmarshal(runStreamingCommand(t, "ffprobe", "-v", "error", "-select_streams", "v:0",
+		"-show_entries", "packet=pts_time,pos", "-of", "json", input), &probe); err != nil {
+		t.Fatal(err)
+	}
+	var cutoff, tailCutoff int64
+	for _, packet := range probe.Packets {
+		pts, _ := strconv.ParseFloat(packet.PTS, 64)
+		if pts >= 6 && cutoff == 0 {
+			cutoff, err = strconv.ParseInt(packet.Pos, 10, 64)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if pts >= 8.5 {
+			tailCutoff, err = strconv.ParseInt(packet.Pos, 10, 64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			break
+		}
+	}
+	if cutoff == 0 || tailCutoff == 0 {
+		t.Fatal("could not find the fixture's truncation point")
+	}
+	var truncate atomic.Bool
+	var truncateAt atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reader io.ReadSeeker = bytes.NewReader(source)
+		if truncate.Load() {
+			// Advertise the real file size, then drop the response before the
+			// requested segment finishes, as an interrupted torrent read would.
+			reader = &truncatedStreamingReader{Reader: bytes.NewReader(source), limit: truncateAt.Load()}
+		}
+		http.ServeContent(w, r, "source.mkv", time.Time{}, reader)
+	}))
+	defer server.Close()
+	for _, mode := range []string{"transcode", "remux", "audio"} {
+		t.Run(mode, func(t *testing.T) {
+			info := streamingTestInfo()
+			info.Duration = 9
+			var keyframes []float64
+			if mode == "remux" {
+				keyframes = []float64{0, 4, 8}
+			}
+			s, err := c.NewStreamingSession(context.Background(), server.URL+"/source.mkv", mode, info, keyframes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			getSegment := func(seg int32) (string, error) {
+				if mode == "audio" {
+					return s.GetAudioSegment(context.Background(), 0, seg)
+				}
+				return s.GetVideoSegment(context.Background(), Original, seg)
+			}
+			truncateAt.Store(cutoff)
+			truncate.Store(true)
+			if path, err := getSegment(1); err == nil {
+				t.Fatalf("published a segment from interrupted input: %s", path)
+			} else if !strings.Contains(err.Error(), "incomplete segment") {
+				t.Fatalf("expected incomplete output to be rejected by its timestamps: %v", err)
+			}
+			pipeline := s.getVideoPipeline(Original)
+			codec := "h264"
+			if mode == "audio" {
+				pipeline = s.getAudioPipeline(0)
+				codec = "aac"
+			}
+			if pipeline.segments.IsReady(1) {
+				t.Fatal("interrupted segment was cached as ready")
+			}
+			truncate.Store(false)
+			path, err := getSegment(1)
+			if err != nil {
+				t.Fatalf("retry after source recovery failed: %v", err)
+			}
+			assertStreamingSegment(t, path, codec, 4)
+			truncateAt.Store(tailCutoff)
+			truncate.Store(true)
+			if path, err := getSegment(2); err == nil {
+				t.Fatalf("published an interrupted final segment: %s", path)
+			} else if !strings.Contains(err.Error(), "incomplete segment") {
+				t.Fatalf("expected interrupted final output to be rejected by its timestamps: %v", err)
+			}
+			truncate.Store(false)
+			path, err = getSegment(2)
+			if err != nil {
+				t.Fatalf("legitimate short final segment failed: %v", err)
+			}
+			assertStreamingSegmentDuration(t, path, codec, 8, 1)
+		})
+	}
+}
+
+func TestStreamingSessionAcceptsUnequalTrackTails(t *testing.T) {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("FFprobe is required for streaming integration tests")
+	}
+	for _, fixture := range []struct {
+		name         string
+		video, audio float64
+	}{
+		{name: "shorter_video", video: 8.7, audio: 9},
+		{name: "shorter_audio", video: 9, audio: 8.7},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			c := streamingTestCassette(t)
+			input := filepath.Join(t.TempDir(), "source.mkv")
+			runStreamingCommand(t, "ffmpeg", "-v", "error",
+				"-f", "lavfi", "-i", fmt.Sprintf("testsrc2=size=640x360:rate=24:duration=%g", fixture.video),
+				"-f", "lavfi", "-i", fmt.Sprintf("sine=frequency=440:sample_rate=48000:duration=%g", fixture.audio),
+				"-c:v", "libx264", "-preset", "ultrafast", "-profile:v", "main", "-level:v", "4.0",
+				"-bf", "2", "-g", "96", "-c:a", "flac", "-y", input)
+			info := streamingTestInfo()
+			info.Duration = 9
+			for _, mode := range []string{"transcode", "remux"} {
+				t.Run(mode, func(t *testing.T) {
+					var keyframes []float64
+					if mode == "remux" {
+						keyframes = []float64{0, 4, 8}
+					}
+					s, err := c.NewStreamingSession(context.Background(), input, mode, info, keyframes)
+					if err != nil {
+						t.Fatal(err)
+					}
+					video, err := s.GetVideoSegment(context.Background(), Original, 2)
+					if err != nil {
+						t.Fatal(err)
+					}
+					audio, err := s.GetAudioSegment(context.Background(), 0, 2)
+					if err != nil {
+						t.Fatal(err)
+					}
+					assertStreamingSegmentDuration(t, video, "h264", 8, fixture.video-8)
+					assertStreamingSegmentDuration(t, audio, "aac", 8, fixture.audio-8)
+				})
+			}
+		})
+	}
+}
+
+type truncatedStreamingReader struct {
+	*bytes.Reader
+	limit int64
+}
+
+func (r *truncatedStreamingReader) Read(p []byte) (int, error) {
+	position, err := r.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0, err
+	}
+	if position >= r.limit {
+		return 0, io.ErrUnexpectedEOF
+	}
+	return r.Reader.Read(p[:min(int64(len(p)), r.limit-position)])
 }
 
 func TestStreamingSessionCancellationStopsInput(t *testing.T) {

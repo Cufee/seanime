@@ -9,6 +9,8 @@ import { vc_isSwiping } from "@/app/(main)/_features/video-core/video-core-atoms
 import { vc_swipeSeekTime } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { vc_duration } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { vc_currentTime } from "@/app/(main)/_features/video-core/video-core-atoms"
+import { vc_lastUserSeekTime } from "@/app/(main)/_features/video-core/video-core-atoms"
+import { canAutoSkipChapter } from "@/app/(main)/_features/video-core/_lib/video-seeking"
 import { vc_seeking } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { vc_seekingTargetProgress } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { vc_closestBufferedTime } from "@/app/(main)/_features/video-core/video-core-atoms"
@@ -56,6 +58,7 @@ export function VideoCoreTimeRange(props: VideoCoreTimeRangeProps) {
     const swipeSeekTime = useAtomValue(vc_swipeSeekTime)
 
     const currentTime = useAtomValue(vc_currentTime)
+    const lastUserSeekTime = useAtomValue(vc_lastUserSeekTime)
     const duration = useAtomValue(vc_duration)
     const buffered = useAtomValue(vc_closestBufferedTime)
     const [seekingTargetProgress, setSeekingTargetProgress] = useAtom(vc_seekingTargetProgress)
@@ -146,9 +149,9 @@ export function VideoCoreTimeRange(props: VideoCoreTimeRangeProps) {
         }
 
         const label = getSkipLabel(chapter.label)
-        if (autoSkipIntroOutro && !restoreProgressTo) {
+        if (autoSkipIntroOutro && !restoreProgressTo && canAutoSkipChapter(chapter, lastUserSeekTime)) {
             setSkipChapter(null)
-            action({ type: "seekTo", payload: { time: chapter.end } })
+            action({ type: "seekTo", payload: { time: chapter.end, userInitiated: false } })
             showOverlayFeedback({ message: `Skipped ${label}`, duration: 1000 })
             return
         }
@@ -162,7 +165,7 @@ export function VideoCoreTimeRange(props: VideoCoreTimeRangeProps) {
                     side: chapter.start < duration / 2 ? "left" : "right",
                 }
         ))
-    }, [currentTime, autoSkipIntroOutro, skipChapters, duration, restoreProgressTo, isWatchPartyPeer])
+    }, [currentTime, autoSkipIntroOutro, skipChapters, duration, restoreProgressTo, isWatchPartyPeer, lastUserSeekTime])
 
     // start seeking
     function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {

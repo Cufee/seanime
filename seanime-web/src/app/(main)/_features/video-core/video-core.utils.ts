@@ -6,6 +6,7 @@ import { vc_videoElement } from "@/app/(main)/_features/video-core/video-core-at
 import { vc_videoSize } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { vc_duration } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { vc_currentTime } from "@/app/(main)/_features/video-core/video-core-atoms"
+import { vc_lastUserSeekTime } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { vc_playbackRate } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { vc_readyState } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { vc_buffering } from "@/app/(main)/_features/video-core/video-core-atoms"
@@ -34,6 +35,7 @@ export const vc_dispatchAction = atom(null, (get, set, action: { type: VideoCore
             case "seekTo":
                 if (isNaN(duration) || duration <= 1) return
                 t = Math.min(duration, Math.max(0, action.payload.time))
+                if (action.payload.userInitiated !== false) set(vc_lastUserSeekTime, t)
                 videoElement.currentTime = t
                 set(vc_currentTime, t)
                 if (action.payload.flashTime) {
@@ -44,6 +46,7 @@ export const vc_dispatchAction = atom(null, (get, set, action: { type: VideoCore
                 if (isNaN(duration) || duration <= 1) return
                 const currentTime = get(vc_currentTime)
                 t = Math.min(duration, Math.max(0, currentTime + action.payload.time))
+                if (action.payload.userInitiated !== false) set(vc_lastUserSeekTime, t)
                 videoElement.currentTime = t
                 set(vc_currentTime, t)
                 if (action.payload.flashTime) {
@@ -64,6 +67,7 @@ export function useVideoCoreBindings(videoElement: HTMLVideoElement | null,
     const setVideoSize = useSetAtom(vc_videoSize)
     const setDuration = useSetAtom(vc_duration)
     const setCurrentTime = useSetAtom(vc_currentTime)
+    const setLastUserSeekTime = useSetAtom(vc_lastUserSeekTime)
     const setPlaybackRate = useSetAtom(vc_playbackRate)
     const setReadyState = useSetAtom(vc_readyState)
     const setBuffering = useSetAtom(vc_buffering)
@@ -92,6 +96,7 @@ export function useVideoCoreBindings(videoElement: HTMLVideoElement | null,
         if (!videoElement) return
         const v = videoElement
         const prev = prevRef.current
+        setLastUserSeekTime(null)
 
         const handler = () => {
             // only update atoms when values actually changed
