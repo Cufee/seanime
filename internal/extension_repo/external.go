@@ -137,6 +137,8 @@ func (r *Repository) InstallExternalExtension(manifestURI string) (*ExtensionIns
 		r.logger.Error().Err(err).Str("uri", manifestURI).Msg("extensions: Failed to fetch extension data")
 		return nil, fmt.Errorf("failed to fetch extension data, %w", err)
 	}
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
 
 	filename := filepath.Join(r.extensionDir, ext.ID+".json")
 
@@ -174,7 +176,7 @@ func (r *Repository) InstallExternalExtension(manifestURI string) (*ExtensionIns
 	// Reload the extensions
 	//r.loadExternalExtensions()
 
-	r.reloadExtension(ext.ID)
+	r.reloadExtensionLocked(ext.ID)
 
 	if update {
 		r.updateDataMu.Lock()
@@ -299,6 +301,11 @@ func (r *Repository) InstallExternalExtensions(uriOrJson string, install bool) (
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 func (r *Repository) UninstallExternalExtension(id string) error {
+	if err := isValidExtensionID(id); err != nil {
+		return err
+	}
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
 
 	// Check if the extension exists
 	// Parse the ext
@@ -318,19 +325,18 @@ func (r *Repository) UninstallExternalExtension(id string) error {
 	// Reload the extensions
 	//r.loadExternalExtensions()
 
-	go func() {
-		_ = r.deleteExtensionUserConfig(id)
-
-		// Delete the plugin data if it was a plugin
-		if ext.Type == extension.TypePlugin {
-			r.deletePluginData(id)
-			r.removePluginFromStoredSettings(id)
-		}
-	}()
+	// Stop the runtime before deleting its data; cleanup completes before
+	// uninstall returns and before a replacement can be loaded.
+	r.reloadExtensionLocked(id)
+	if err := r.deleteExtensionUserConfig(id); err != nil {
+		return err
+	}
+	if ext.Type == extension.TypePlugin {
+		r.deletePluginData(id)
+		r.removePluginFromStoredSettings(id)
+	}
 
 	r.removeExtensionFromStoredSettings(id)
-
-	r.reloadExtension(id)
 
 	return nil
 }
@@ -406,6 +412,8 @@ func (r *Repository) checkForUpdates() (ret []UpdateData) {
 
 // UpdateExtensionCode updates the code of an external application
 func (r *Repository) UpdateExtensionCode(id string, payload string) error {
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
 
 	if id == "" {
 		r.logger.Error().Msg("extensions: ID is empty")
@@ -454,7 +462,7 @@ func (r *Repository) UpdateExtensionCode(id string, payload string) error {
 	}
 
 	// Call reload extension to unload it
-	r.reloadExtension(id)
+	r.reloadExtensionLocked(id)
 
 	return nil
 }
@@ -565,6 +573,8 @@ func (r *Repository) unloadExternalExtensions() {
 // loadExternalExtensions loads all external extensions from the extension directory.
 // This should be called after the built-in extensions are loaded.
 func (r *Repository) loadExternalExtensions() {
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
 	r.logger.Trace().Msg("extensions: Loading external extensions")
 
 	// Interrupt all Goja VMs
@@ -842,6 +852,13 @@ func (r *Repository) invalidateExtension(id string, reason string) {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 func (r *Repository) reloadExtension(id string) {
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
+	r.reloadExtensionLocked(id)
+}
+
+// reloadExtensionLocked requires lifecycleMu and must not outlive that lock.
+func (r *Repository) reloadExtensionLocked(id string) {
 	r.logger.Trace().Str("id", id).Msg("extensions: Reloading extension")
 
 	// 1. Unload the extension
@@ -850,7 +867,7 @@ func (r *Repository) reloadExtension(id string) {
 	r.extensionBankRef.Get().Delete(id)
 
 	// Delete the plugin pool
-	go r.gojaRuntimeManager.DeletePluginPool(id)
+	r.gojaRuntimeManager.DeletePluginPool(id)
 
 	// Kill Goja VM if it exists
 	gojaExtension, ok := r.gojaExtensions.Get(id)

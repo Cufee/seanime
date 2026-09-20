@@ -35,6 +35,9 @@ type (
 		// Store all active Goja VMs
 		// - When reloading extensions, all VMs are interrupted
 		gojaExtensions *result.Map[string, GojaExtension]
+		// Serialize runtime replacement with uninstall so no live plugin is
+		// overwritten in gojaExtensions before it has been stopped.
+		lifecycleMu sync.Mutex
 
 		gojaRuntimeManager *goja_runtime.Manager
 		// Extension bank

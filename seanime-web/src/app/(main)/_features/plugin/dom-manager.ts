@@ -61,14 +61,14 @@ export function useDOMManager(extensionId: string) {
         callback: (elements: Element[]) => void
     }>>(new Map())
     const observedElementsRef = useRef<Map<string, Set<string>>>(new Map()) // Track observed elements by observerId
-    const eventListenersRef = useRef<Map<string, { elementId: string; eventType: string; callback: (event: Event) => void }>>(new Map())
+    const eventListenersRef = useRef<Map<string, { element: Element; eventType: string; callback: (event: Event) => void }>>(new Map())
     const mutationObserverRef = useRef<MutationObserver | null>(null)
     const disposedRef = useRef<boolean>(false)
     const domReadySentRef = useRef<boolean>(false)
     const isMainTab = useIsMainTab()
     const isMainTabRef = useIsMainTabRef()
     // Track only elements created by this plugin
-    const createdElementsRef = useRef<Set<string>>(new Set())
+    const createdElementsRef = useRef<Set<Element>>(new Set())
     const intersectionObserversRef = useRef<Map<string, IntersectionObserver>>(new Map())
 
     // Ensure element has a persistent ID
@@ -469,7 +469,7 @@ export function useDOMManager(extensionId: string) {
         elementIdsMapRef.current.set(element, elementId)
 
         // Track this element as it was created by the plugin
-        createdElementsRef.current.add(elementId)
+        createdElementsRef.current.add(element)
 
         // Add to a hidden container for now
         let container = document.getElementById("plugin-dom-container")
@@ -733,7 +733,7 @@ export function useDOMManager(extensionId: string) {
 
                 // Store the event listener
                 eventListenersRef.current.set(listenerId, {
-                    elementId,
+                    element,
                     eventType,
                     callback: (event) => {
                         // Convert event to a serializable object
@@ -753,13 +753,12 @@ export function useDOMManager(extensionId: string) {
                 break
             case "removeEventListener":
                 const listenerIdToRemove = params.listenerId
-                const eventTypeToRemove = params.event
 
                 // Get the event listener
                 const listener = eventListenersRef.current.get(listenerIdToRemove)
                 if (listener) {
                     // Remove the event listener
-                    element.removeEventListener(eventTypeToRemove, listener.callback)
+                    listener.element.removeEventListener(listener.eventType, listener.callback)
                     // Remove from the map
                     eventListenersRef.current.delete(listenerIdToRemove)
                 }
@@ -832,16 +831,7 @@ export function useDOMManager(extensionId: string) {
         // Mark as disposed to prevent further message sending
         disposedRef.current = true
 
-        if (!isMainTabRef.current) {
-            // If not main tab, just clear the maps without DOM operations
-            elementObserversRef.current.clear()
-            eventListenersRef.current.clear()
-            observedElementsRef.current.clear()
-            createdElementsRef.current.clear()
-            elementIdsMapRef.current.clear()
-            intersectionObserversRef.current.clear()
-            return
-        }
+        // These resources still belong to this manager after another tab becomes main.
 
         // Making sure domReady event is only sent once, even if when the main tab changes
         domReadySentRef.current = false
@@ -859,26 +849,13 @@ export function useDOMManager(extensionId: string) {
         intersectionObserversRef.current.clear()
 
         // Remove all event listeners
-        eventListenersRef.current.forEach((listener, listenerId) => {
-            const element = document.getElementById(listener.elementId)
-            if (element) {
-                element.removeEventListener(listener.eventType, listener.callback)
-            }
+        eventListenersRef.current.forEach(listener => {
+            listener.element.removeEventListener(listener.eventType, listener.callback)
         })
 
-        // Remove only elements that were created by this plugin
-        createdElementsRef.current.forEach(elementId => {
-            const element = document.getElementById(elementId)
-            if (element) {
-                // Remove any event listeners attached to this element
-                const elementListeners = Array.from(eventListenersRef.current.values())
-                    .filter(l => l.elementId === elementId)
-                elementListeners.forEach(listener => {
-                    element.removeEventListener(listener.eventType, listener.callback)
-                })
-                // Remove the element itself
-                element.remove()
-            }
+        // Keep the original nodes, since a replacement can reuse the same DOM ID.
+        createdElementsRef.current.forEach(element => {
+            element.remove()
         })
 
         // Clear the maps

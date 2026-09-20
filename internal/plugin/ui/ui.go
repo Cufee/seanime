@@ -96,15 +96,16 @@ func (u *UI) Unload(signalDestroyed bool) {
 }
 
 // UnloadFromInside is called by the UI module itself when it's being unloaded
-func (u *UI) UnloadFromInside(signalDestroyed bool) {
+func (u *UI) UnloadFromInside(_ bool) {
+	// Interrupt before taking the UI lock, which registration may hold while
+	// executing JavaScript. An unloaded VM must never resume queued callbacks.
+	u.vm.Interrupt("plugin unloaded")
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
 	if u.destroyed {
 		return
 	}
-	// Stop the VM
-	u.vm.ClearInterrupt()
 	// Unsubscribe from client all events
 	if u.context.wsSubscriber != nil {
 		u.wsEventManager.UnsubscribeFromClientEvents("plugin-" + u.ext.ID)
@@ -117,9 +118,8 @@ func (u *UI) UnloadFromInside(signalDestroyed bool) {
 	// Send the plugin unloaded event to the client
 	u.wsEventManager.SendEvent(events.PluginUnloaded, u.ext.ID)
 
-	if signalDestroyed {
-		u.signalDestroyed()
-	}
+	// Normal unloads must also release the plugin's lifetime watcher.
+	u.signalDestroyed()
 }
 
 // Destroyed returns a channel that is closed when the UI is destroyed
@@ -159,11 +159,31 @@ func (u *UI) signalDestroyed() {
 // This is the main entry point for the UI
 // - It is called once when the plugin is loaded and registers all necessary modules
 func (u *UI) Register(callback string) error {
+	// Registration and timer callbacks use the same VM. Queue initialization
+	// before the callbacks it creates, and stop waiting if the UI is unloaded.
+	done := make(chan error, 1)
+	u.scheduler.ScheduleAsync(func() error {
+		done <- u.register(callback)
+		return nil
+	})
+	select {
+	case err := <-done:
+		return err
+	case <-u.destroyedCh:
+		return errors.New("plugin: UI unloaded during registration")
+	}
+}
+
+func (u *UI) register(callback string) error {
 	defer util.HandlePanicInModuleThen("plugin_ui/Register", func() {
 		u.logger.Error().Msg("plugin: Panic in Register")
 	})
 
 	u.mu.Lock()
+	if u.destroyed {
+		u.mu.Unlock()
+		return errors.New("plugin: UI is unloaded")
+	}
 
 	// Create a wrapper JavaScript function that calls the provided callback
 	callback = `function(ctx) { return (` + callback + `).call(undefined, ctx); }`

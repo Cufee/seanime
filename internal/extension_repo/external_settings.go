@@ -44,6 +44,8 @@ func (r *Repository) GetExtensionSettings() *StoredExtensionSettingsData {
 }
 
 func (r *Repository) SetExternalExtensionDisabled(id string, disabled bool) error {
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
 	if id == "" {
 		return fmt.Errorf("id is empty")
 	}
@@ -71,7 +73,7 @@ func (r *Repository) SetExternalExtensionDisabled(id string, disabled bool) erro
 		return err
 	}
 
-	r.reloadExtension(id)
+	r.reloadExtensionLocked(id)
 	return nil
 }
 
