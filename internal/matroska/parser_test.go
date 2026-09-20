@@ -3252,7 +3252,7 @@ func TestParseCuePoint_Full(t *testing.T) {
 	ctp.Write([]byte{0xF1, 0x81, 0x64})       // ClusterPos 100
 	ctp.Write([]byte{0xF0, 0x81, 0x05})       // RelativePos 5
 	ctp.Write([]byte{0x53, 0x78, 0x81, 0x03}) // BlockNum 3
-	ctp.Write([]byte{0x9B, 0x81, 0x02})       // Duration 2
+	ctp.Write([]byte{0xB2, 0x81, 0x02})       // CueDuration 2
 	cue.Write([]byte{0xB7})
 	cue.Write(vintEncode(uint64(ctp.Len())))
 	cue.Write(ctp.Bytes())
@@ -5307,6 +5307,62 @@ func writeUIntElement(buf *bytes.Buffer, id uint32, value uint64, dataLen int) {
 	buf.Write(tmp)
 }
 
+func TestParseCueTrackPositions_StandardDurationElement(t *testing.T) {
+	parser := &MatroskaParser{fileInfo: &SegmentInfo{TimecodeScale: 1000000}}
+	// Use literal EBML bytes so the test cannot reproduce an incorrect
+	// production constant. CueDuration is 0xB2, whereas BlockDuration is 0x9B.
+	// https://www.matroska.org/technical/elements.html#CueDuration
+	data := []byte{0xF7, 0x81, 0x02, 0xF1, 0x81, 0x01, 0xB2, 0x82, 0x03, 0xE8}
+	cue, err := parser.parseCueTrackPositions(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cue.Duration != 1000000000 {
+		t.Fatalf("CueDuration = %d, want 1000000000ns", cue.Duration)
+	}
+}
+
+func TestPositionedMatroskaReaderKeepsFirstCluster(t *testing.T) {
+	// Cluster timestamp=1, one SimpleBlock for track 1 with payload "first".
+	cluster := []byte{0x1F, 0x43, 0xB6, 0x75, 0x8E,
+		0xE7, 0x81, 0x01,
+		0xA3, 0x89, 0x81, 0x00, 0x00, 0x80, 'f', 'i', 'r', 's', 't'}
+	for _, useDemuxer := range []bool{false, true} {
+		name := "parser"
+		if useDemuxer {
+			name = "demuxer"
+		}
+		t.Run(name, func(t *testing.T) {
+			reader := bytes.NewReader(append(make([]byte, 64), cluster...))
+			if _, err := reader.Seek(64, io.SeekStart); err != nil {
+				t.Fatal(err)
+			}
+			var packet *Packet
+			var err error
+			if useDemuxer {
+				demuxer, createErr := NewDemuxer(reader)
+				if createErr != nil {
+					t.Fatal(createErr)
+				}
+				defer demuxer.Close()
+				packet, err = demuxer.ReadPacket()
+			} else {
+				parser, createErr := NewMatroskaParser(reader, false)
+				if createErr != nil {
+					t.Fatal(createErr)
+				}
+				packet, err = parser.ReadPacket()
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(packet.Data) != "first" || packet.StartTime != 1000000 || packet.FilePos < 64 {
+				t.Fatalf("first cluster packet lost or incorrectly positioned: %+v", packet)
+			}
+		})
+	}
+}
+
 func TestParseCueTrackPositions_AllFields(t *testing.T) {
 	mp := &MatroskaParser{fileInfo: &SegmentInfo{TimecodeScale: 100}}
 
@@ -5319,7 +5375,7 @@ func TestParseCueTrackPositions_AllFields(t *testing.T) {
 	writeUIntElement(&data, IDCueRelativePos, 5, 1)
 	// IDCueBlockNum (0x5378) = 7
 	writeUIntElement(&data, IDCueBlockNum, 7, 1)
-	// IDCueDuration (0x9B) = 2 (scaled by 100)
+	// IDCueDuration (0xB2) = 2 (scaled by 100)
 	writeUIntElement(&data, IDCueDuration, 2, 1)
 
 	cue, err := mp.parseCueTrackPositions(data.Bytes())

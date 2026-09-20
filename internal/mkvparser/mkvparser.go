@@ -33,8 +33,8 @@ var fontExtensions = map[string]struct{}{".ttf": {}, ".ttc": {}, ".woff": {}, ".
 type SubtitleEvent struct {
 	TrackNumber uint64            `json:"trackNumber"`
 	Text        string            `json:"text"`      // Content
-	StartTime   float64           `json:"startTime"` // Start time in seconds
-	Duration    float64           `json:"duration"`  // Duration in seconds
+	StartTime   float64           `json:"startTime"` // Start time in milliseconds
+	Duration    float64           `json:"duration"`  // Duration in milliseconds
 	CodecID     string            `json:"codecID"`   // e.g., "S_TEXT/ASS", "S_TEXT/UTF8"
 	ExtraData   map[string]string `json:"extraData,omitempty"`
 
@@ -327,8 +327,12 @@ func (mp *MetadataParser) GetMetadata(ctx context.Context) *Metadata {
 			result.Cues = make([]*CueInfo, len(cues))
 			for i, cue := range cues {
 				result.Cues[i] = &CueInfo{
-					Time:     cue.Time,
-					Position: segmentPos + cue.Position,
+					Time:             cue.Time,
+					Duration:         cue.Duration,
+					Position:         segmentPos + cue.Position,
+					RelativePosition: cue.RelativePosition,
+					Block:            cue.Block,
+					Track:            cue.Track,
 				}
 			}
 		}
@@ -470,6 +474,11 @@ func (mp *MetadataParser) ExtractSubtitles(ctx context.Context, newReader io.Rea
 	}
 
 	extractCtx, cancel := context.WithCancel(ctx)
+	if reader, ok := newReader.(interface{ SetContext(context.Context) }); ok {
+		// Torrent readers can block waiting for pieces. Bind cancellation
+		// before cluster lookup as well as the packet-reading goroutine.
+		reader.SetContext(extractCtx)
+	}
 
 	if offset > 0 {
 		mp.logger.Debug().Int64("offset", offset).Msg("mkvparser: Attempting to find cluster near offset")
@@ -548,6 +557,13 @@ func (mp *MetadataParser) ExtractSubtitles(ctx context.Context, newReader io.Rea
 			return
 		}
 		defer demuxer.Close()
+		if offset > 0 {
+			// Cluster-only readers do not encounter SegmentInfo. Preserve the
+			// source timestamp scale instead of assuming the default 1 ms.
+			if info, err := demuxer.GetFileInfo(); err == nil && metadata.TimecodeScale > 0 {
+				info.TimecodeScale = uint64(metadata.TimecodeScale)
+			}
+		}
 
 		// Ignore all tracks except subtitle tracks to optimize sequential reading
 		var trackMask uint64 = ^uint64(0)
@@ -633,7 +649,7 @@ func (mp *MetadataParser) ExtractSubtitles(ctx context.Context, newReader io.Rea
 	return subtitleCh, errCh, startedCh
 }
 
-var ssaKeys = []string{"readorder", "layer", "style", "name", "marginl", "marginr", "marginv", "effect"}
+var ssaKeys = []string{"readOrder", "layer", "style", "name", "marginL", "marginR", "marginV", "effect"}
 
 // processSubtitleData processes subtitle data and sends events to the channel
 func (mp *MetadataParser) processSubtitleData(
@@ -667,6 +683,7 @@ func (mp *MetadataParser) processSubtitleData(
 		if len(values) < 9 {
 			return nil
 		}
+		subtitleEvent.ExtraData["readOrder"] = values[0]
 		startIndex := 1
 		if track.CodecID == "S_TEXT/SSA" {
 			startIndex = 2
@@ -683,12 +700,13 @@ func (mp *MetadataParser) processSubtitleData(
 	case track.CodecID == "S_TEXT/UTF8":
 		subtitleEvent.Text = UTF8ToASSText(initialText)
 		subtitleEvent.CodecID = "S_TEXT/ASS"
-		subtitleEvent.ExtraData["readorder"] = "0"
+		subtitleEvent.ExtraData["readOrder"] = "0"
 		subtitleEvent.ExtraData["layer"] = "0"
 		subtitleEvent.ExtraData["style"] = "Default"
 		subtitleEvent.ExtraData["name"] = "Default"
-		subtitleEvent.ExtraData["marginl"] = "0"
-		subtitleEvent.ExtraData["marginr"] = "0"
+		subtitleEvent.ExtraData["marginL"] = "0"
+		subtitleEvent.ExtraData["marginR"] = "0"
+		subtitleEvent.ExtraData["marginV"] = "0"
 	case track.CodecID == "S_HDMV/PGS":
 		// Initialize decoder if not exists
 		if _, exists := pgsDecoders[trackNum]; !exists {

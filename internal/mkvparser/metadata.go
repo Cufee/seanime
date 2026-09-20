@@ -68,8 +68,12 @@ type AttachmentInfo struct {
 }
 
 type CueInfo struct {
-	Time     uint64 // Time in nanoseconds
-	Position uint64 // Absolute byte position of the cluster
+	Time             uint64 // Time in nanoseconds
+	Duration         uint64 // Duration in nanoseconds; zero when absent
+	Position         uint64 // Absolute byte position of the cluster
+	RelativePosition uint64 // Position of the block within the cluster
+	Block            uint64
+	Track            uint8
 }
 
 // Metadata holds all extracted metadata.

@@ -139,7 +139,7 @@ const (
 	IDCueClusterPos    = 0xF1       // The position of the Cluster containing the referenced Block.
 	IDCueRelativePos   = 0xF0       // The relative position of the Block within the Cluster.
 	IDCueBlockNum      = 0x5378     // The Block number of the referenced Block.
-	IDCueDuration      = 0x9B       // The duration of the block.
+	IDCueDuration      = 0xB2       // Duration in Segment Ticks (RFC 9559, section 5.1.5.1.2.4).
 
 	// Chapters elements
 	IDChapters                 = 0x1043A770 // A top-level element containing all chapter entries

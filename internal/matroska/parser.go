@@ -177,16 +177,29 @@ func NewMatroskaParser(r io.ReadSeeker, noSeeking bool, elementsToParse ...uint3
 		}
 	}
 
-	// Try to parse header and segment
-	headerErr := parser.parseHeader()
-	var segmentErr error
-	if headerErr == nil {
-		segmentErr = parser.parseSegment()
+	var initialPos int64
+	if !noSeeking {
+		var err error
+		initialPos, err = parser.reader.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get initial reader position: %w", err)
+		}
+	}
+	positionedAtCluster := initialPos > 0
+	// A positioned reader starts at a cluster, not another EBML header.
+	// Reading it as a header would consume the whole first cluster before
+	// rejecting its ID, discarding the packets needed immediately after seek.
+	var headerErr, segmentErr error
+	if !positionedAtCluster {
+		headerErr = parser.parseHeader()
+		if headerErr == nil {
+			segmentErr = parser.parseSegment()
+		}
 	}
 
 	// If we failed to parse header or segment, we might be positioned at a cluster offset
 	// Initialize with minimal defaults to allow packet reading from current position
-	if headerErr != nil || segmentErr != nil {
+	if positionedAtCluster || headerErr != nil || segmentErr != nil {
 		// Initialize with defaults for cluster-only parsing
 		parser.header = &EBMLHeader{
 			DocType:        "matroska",
@@ -258,7 +271,7 @@ func NewMatroskaParser(r io.ReadSeeker, noSeeking bool, elementsToParse ...uint3
 	//	}
 	//}
 
-	if headerErr == nil && segmentErr == nil {
+	if !positionedAtCluster && headerErr == nil && segmentErr == nil {
 		if parser.shouldParseElement(IDCues) && parser.cuesPos > 0 && len(parser.cues) == 0 {
 			currentPos := parser.reader.Position()
 			if _, err := parser.reader.Seek(int64(parser.segmentPos+parser.cuesPos), io.SeekStart); err == nil {
