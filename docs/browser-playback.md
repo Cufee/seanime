@@ -2,11 +2,11 @@
 
 This fork adds torrent playback to Seanime’s existing NativePlayer/VideoCore in a web browser. It keeps episode selection, subtitle rendering, player events, progress, and continuation in the existing application.
 
-Base: upstream `5rahim/seanime`, commit `2da73d9eb59af15b004ef4e9018ac9db6fff213a` (`v3.10.3`). Branch: `feat/browser-torrent-playback`. Git remotes: `origin` is [Cufee/seanime](https://github.com/Cufee/seanime), and `upstream` is `5rahim/seanime`. No upstream PR or Mac deployment has been performed.
+Base: upstream `5rahim/seanime`, commit `2da73d9eb59af15b004ef4e9018ac9db6fff213a` (`v3.10.3`). The three playback commits originated on `feat/browser-torrent-playback` and are merged into this fork's `main`. Git remotes: `origin` is [Cufee/seanime](https://github.com/Cufee/seanime), and `upstream` is `5rahim/seanime`. No upstream PR or Mac deployment has been performed.
 
 ## Enable playback
 
-1. Run this fork on the Seanime server with FFmpeg and FFprobe available there. For Docker, both executables must exist inside the container.
+1. Run this fork on the Seanime server with FFmpeg and FFprobe available there. The [rootless Docker build and release package](docker.md) include both executables inside the container.
 2. Enable media transcoding in Seanime’s server settings and configure its FFmpeg/FFprobe paths. The existing hardware acceleration and preset settings apply.
 3. In the browser’s playback settings, enable **Play torrents in this browser**.
 4. Start a torrent through the usual episode/torrent selection flow.
@@ -98,7 +98,7 @@ No working LSP connection is available in this environment. Navigation used nati
 
 Keep independent parser/subtitle corrections separate from Cassette’s streaming entrypoint and browser UI wiring when preparing upstream contributions. Avoid moving existing player files, adding a second service, or changing dependencies for this feature. Regenerate API types with `go generate ./codegen/main.go` after public schema changes.
 
-The local branch contains three commits: the Matroska parsing fixes, Cassette’s cancellable streaming sessions with media tests, and the native browser player integration with subtitle lifecycle fixes. The normal package tests are tracked; machine-specific browser harness files and synthetic media remain ignored.
+The playback implementation consists of three commits: the Matroska parsing fixes, Cassette’s cancellable streaming sessions with media tests, and the native browser player integration with subtitle lifecycle fixes. Container packaging and release automation are separate. The normal package tests are tracked; machine-specific browser harness files and synthetic media remain ignored.
 
 To update a clean branch, use native Git:
 

@@ -1,0 +1,88 @@
+name: Publish rootless container
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: container-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=latest-rootless
+            type=ref,event=tag,suffix=-rootless
+            type=sha,format=long,suffix=-rootless
+
+      - name: Build the test image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          tags: seanime:release-test
+          build-args: VCS_REF=${{ github.sha }}
+          cache-from: type=gha,scope=rootless
+          cache-to: type=gha,mode=max,scope=rootless
+
+      - name: Check rootless startup and media tools
+        run: |
+          docker run --rm --entrypoint sh seanime:release-test -ec '
+            test "$(id -u)" = 1000
+            test "$(id -g)" = 1000
+            test "$HOME" = /home/seanime
+            test -x /app/seanime
+            ffmpeg -version
+            ffprobe -version
+          '
+          docker run -d --name seanime-release-test \
+            -e SEANIME_SERVER_HOST=0.0.0.0 seanime:release-test
+          trap 'docker logs seanime-release-test; docker rm -f seanime-release-test' EXIT
+          for _ in $(seq 1 60); do
+            if docker exec seanime-release-test curl -fsS http://127.0.0.1:43211/ >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Build and publish AMD64 and ARM64 images
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VCS_REF=${{ github.sha }}
+          cache-from: type=gha,scope=rootless
+          cache-to: type=gha,mode=max,scope=rootless

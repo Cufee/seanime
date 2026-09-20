@@ -1,0 +1,27 @@
+# Send only build inputs, including when the checkout contains local test data.
+**
+!Dockerfile
+!.dockerignore
+!main.go
+!go.mod
+!go.sum
+!internal/
+!internal/**
+!seanime-web/
+!seanime-web/**
+
+**/node_modules
+**/out
+**/out-desktop
+**/out-denshi
+**/dist
+**/.git
+**/.env*
+**/*.tsbuildinfo
+**/.tanstack
+**/coverage
+**/testdata
+**/*.db
+**/*.log
+**/*.pem
+**/*.key

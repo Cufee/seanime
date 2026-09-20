@@ -10,11 +10,11 @@ testdata/
 !.github/ISSUE_TEMPLATE
 !.github/scripts
 !.github/pull_request_template.md
+!.github/workflows/
 
-Dockerfile
 Dockerfile.dev
 dev.dockerfile
-.dockerignore
+!/.dockerignore
 
 go.work
 .gocache
