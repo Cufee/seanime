@@ -17,6 +17,7 @@ import {
     TorrentSearchDrawer,
 } from "@/app/(main)/entry/_containers/torrent-search/torrent-search-drawer"
 import { useHandleStartTorrentStream } from "@/app/(main)/entry/_containers/torrent-stream/_lib/handle-torrent-stream"
+import { getBrowserTorrentPlaybackError } from "@/app/(main)/entry/_containers/torrent-stream/_lib/browser-torrent-playback"
 import { __torrentStream_autoSelectFileAtom } from "@/app/(main)/entry/_containers/torrent-stream/torrent-stream-page"
 import { useHandlePlayMedia } from "@/app/(main)/entry/_lib/handle-play-media"
 import { useMediastreamActiveOnDevice } from "@/app/(main)/mediastream/_lib/mediastream.atoms"
@@ -62,10 +63,18 @@ export function usePlaylistManager() {
     const [confirmOpen, setConfirmOpen] = useAtom(pm_confirmProgressUpdateModalOpen)
     const [playEpisodeRequestPending, setPlayEpisodeRequestPending] = useAtom(pm_playEpisodeRequestPending)
 
-    const { downloadedMediaPlayback, torrentStreamingPlayback, electronPlaybackMethod } = useCurrentDevicePlaybackSettings()
+    const { downloadedMediaPlayback, torrentStreamingPlayback, electronPlaybackMethod, browserTorrentPlayback } = useCurrentDevicePlaybackSettings()
     const { activeOnDevice } = useMediastreamActiveOnDevice()
 
     function startPlaylist(playlist: Anime_Playlist) {
+        const useBrowserTorrentPlayback = !__isElectronDesktop__ && browserTorrentPlayback
+        if (useBrowserTorrentPlayback && playlist.episodes?.some(episode => episode.watchType === "torrent")) {
+            const error = getBrowserTorrentPlaybackError()
+            if (error) {
+                toast.error(error)
+                return
+            }
+        }
         toast.info("Starting playlist...")
         sendMessage({
             type: WSEvents.PLAYLIST,
@@ -74,6 +83,7 @@ export function usePlaylistManager() {
                 payload: {
                     clientId: clientId,
                     dbId: playlist.dbId,
+                    browserTorrentPlayback: useBrowserTorrentPlayback,
                     localFilePlaybackMethod: __isElectronDesktop__ && electronPlaybackMethod !== "default"
                         ? electronPlaybackMethod
                         : activeOnDevice ? "transcode" : downloadedMediaPlayback,

@@ -58,6 +58,8 @@ export function PlaybackSettings() {
         setDownloadedMediaPlayback,
         torrentStreamingPlayback,
         setTorrentStreamingPlayback,
+        browserTorrentPlayback,
+        setBrowserTorrentPlayback,
         electronPlaybackMethod,
         setElectronPlaybackMethod,
     } = useCurrentDevicePlaybackSettings()
@@ -345,6 +347,15 @@ export function PlaybackSettings() {
             >
                 <div className="space-y-4">
                     {usingNativePlayer && <OverrideNotice />}
+                    {!__isElectronDesktop__ && <Switch
+                        label="Play torrents in this browser"
+                        help="Use Seanime's built-in player for torrents, with seeking and subtitles. Debrid uses the playback method below."
+                        value={browserTorrentPlayback}
+                        onValueChange={value => {
+                            setBrowserTorrentPlayback(value)
+                            notifyUpdated()
+                        }}
+                    />}
                     <PlaybackChoiceGroup
                         columns="two"
                         value={torrentStreamingPlayback}

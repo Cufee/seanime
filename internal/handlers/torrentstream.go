@@ -136,6 +136,7 @@ func (h *Handler) HandleTorrentstreamStartStream(c echo.Context) error {
 		Torrent           *hibiketorrent.AnimeTorrent      `json:"torrent,omitempty"` // Nil if autoSelect is true
 		FileIndex         *int                             `json:"fileIndex,omitempty"`
 		PlaybackType      torrentstream.PlaybackType       `json:"playbackType"` // "default" or "externalPlayerLink"
+		BrowserPlayback   bool                             `json:"browserPlayback,omitempty"`
 		ClientId          string                           `json:"clientId"`
 		BatchEpisodeFiles *hibiketorrent.BatchEpisodeFiles `json:"batchEpisodeFiles,omitempty"`
 		// Preload is true if the stream should only be prepared.
@@ -161,6 +162,7 @@ func (h *Handler) HandleTorrentstreamStartStream(c echo.Context) error {
 		UserAgent:         userAgent,
 		ClientId:          b.ClientId,
 		PlaybackType:      b.PlaybackType,
+		BrowserPlayback:   b.BrowserPlayback,
 		BatchEpisodeFiles: b.BatchEpisodeFiles,
 	}
 

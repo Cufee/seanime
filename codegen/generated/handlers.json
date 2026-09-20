@@ -12086,6 +12086,15 @@
           "descriptions": []
         },
         {
+          "name": "BrowserPlayback",
+          "jsonName": "browserPlayback",
+          "goType": "bool",
+          "usedStructType": "",
+          "typescriptType": "boolean",
+          "required": false,
+          "descriptions": []
+        },
+        {
           "name": "ClientId",
           "jsonName": "clientId",
           "goType": "string",

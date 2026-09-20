@@ -78,6 +78,8 @@ func (r *Repository) OnCleanup() {
 }
 
 func (r *Repository) InitializeModules(settings *models.MediastreamSettings, cacheDir string, transcodeDir string) {
+	r.reqMu.Lock()
+	defer r.reqMu.Unlock()
 	if settings == nil {
 		r.logger.Error().Msg("mediastream: Settings not present")
 		return

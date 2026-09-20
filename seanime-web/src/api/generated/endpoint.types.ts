@@ -2144,6 +2144,7 @@ export type TorrentstreamStartStream_Variables = {
     torrent?: HibikeTorrent_AnimeTorrent
     fileIndex?: number
     playbackType: Torrentstream_PlaybackType
+    browserPlayback?: boolean
     clientId: string
     batchEpisodeFiles?: HibikeTorrent_BatchEpisodeFiles
     /**

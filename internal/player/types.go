@@ -104,6 +104,8 @@ type PlaybackInfo struct {
 	PlaybackType                   PlaybackType                         `json:"playbackType"`
 	PlaybackURI                    string                               `json:"playbackUri,omitempty"`
 	StreamURL                      string                               `json:"streamUrl"`
+	DeliveryFormat                 string                               `json:"deliveryFormat,omitempty"`
+	DisablePreview                 bool                                 `json:"disablePreview,omitempty"`
 	StreamPath                     string                               `json:"streamPath,omitempty"`
 	MimeType                       string                               `json:"mimeType,omitempty"`
 	ContentLength                  int64                                `json:"contentLength,omitempty"`

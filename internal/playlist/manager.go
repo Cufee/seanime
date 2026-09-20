@@ -168,6 +168,7 @@ type (
 		DbId                    uint                 `json:"dbId"`
 		LocalFilePlaybackMethod ClientPlaybackMethod `json:"localFilePlaybackMethod"`
 		StreamPlaybackMethod    ClientPlaybackMethod `json:"streamPlaybackMethod"`
+		BrowserTorrentPlayback  bool                 `json:"browserTorrentPlayback,omitempty"`
 		ClientId                string               `json:"clientId"`
 	}
 
@@ -587,7 +588,8 @@ func (m *Manager) playEpisode(episode *anime.PlaylistEpisode) {
 
 	if (isLf && data.options.LocalFilePlaybackMethod != ClientPlaybackMethodNativePlayer) ||
 		(isNakama && data.options.LocalFilePlaybackMethod != ClientPlaybackMethodNativePlayer) ||
-		(isTorrentOrDebridStream && data.options.StreamPlaybackMethod != ClientPlaybackMethodNativePlayer) ||
+		(isTorrentOrDebridStream && data.options.StreamPlaybackMethod != ClientPlaybackMethodNativePlayer &&
+			!(episode.WatchType == anime.WatchTypeTorrent && data.options.BrowserTorrentPlayback)) ||
 		episode.WatchType == anime.WatchTypeOnline {
 		if m.mediacoreCoordinator != nil {
 			session, ok := m.mediacoreCoordinator.GetActiveSession()

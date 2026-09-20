@@ -52,6 +52,7 @@ export function useVideoCoreHls({
     videoElement,
     streamUrl,
     streamType,
+    waitForTorrentPieces = false,
     preferredQuality,
     onFatalError,
     onStalled,
@@ -60,6 +61,7 @@ export function useVideoCoreHls({
     videoElement: HTMLVideoElement | null
     streamUrl: string | undefined
     streamType?: string
+    waitForTorrentPieces?: boolean
     preferredQuality?: string
     onMediaDetached?: () => void
     onFatalError?: (error: ErrorData) => void
@@ -118,6 +120,17 @@ export function useVideoCoreHls({
                 backBufferLength: 90,
                 enableWebVTT: true,
                 renderTextTracksNatively: false, // don't use native text tracks for subtitles
+                // A cold torrent seek must first download and convert its pieces.
+                // The default 10s first-byte timeout repeatedly cancels that work.
+                ...(waitForTorrentPieces ? {
+                    fragLoadPolicy: {
+                        default: {
+                            ...Hls.DefaultConfig.fragLoadPolicy.default,
+                            maxTimeToFirstByteMs: 120_000,
+                            maxLoadTimeMs: 180_000,
+                        },
+                    },
+                } : {}),
             })
             let sourceLoaded = false
             let recoveringMediaError = false
@@ -311,7 +324,7 @@ export function useVideoCoreHls({
             hlsLog.error("HLS not supported on this browser")
             toast.error("HLS playback not supported on this browser")
         }
-    }, [streamUrl, videoElement, streamType])
+    }, [streamUrl, videoElement, streamType, waitForTorrentPieces])
 
 
     // Update audio manager when HLS audio track changes

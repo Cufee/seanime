@@ -1,8 +1,6 @@
 import { HibikeTorrent_AnimeTorrent, HibikeTorrent_BatchEpisodeFiles } from "@/api/generated/types"
 import { useTorrentstreamStartStream } from "@/api/hooks/torrentstream.hooks"
 import {
-    ElectronPlaybackMethod,
-    PlaybackTorrentStreaming,
     useCurrentDevicePlaybackSettings,
     useExternalPlayerLink,
 } from "@/app/(main)/_atoms/playback.atoms"
@@ -25,10 +23,11 @@ import { clientIdAtom } from "@/app/websocket-provider"
 import { logger } from "@/lib/helpers/debug"
 import { WSEvents } from "@/lib/server/ws-events"
 import { __isElectronDesktop__ } from "@/types/constants"
-import { useQueryClient } from "@tanstack/react-query"
 import { useAtomValue } from "jotai"
 import { useSetAtom } from "jotai/react"
 import React from "react"
+import { toast } from "sonner"
+import { getBrowserTorrentPlaybackError, resolveTorrentPlayback } from "./browser-torrent-playback"
 
 type ManualTorrentStreamSelectionProps = {
     torrent: HibikeTorrent_AnimeTorrent
@@ -49,11 +48,10 @@ type AutoSelectTorrentStreamProps = {
 export function useHandleStartTorrentStream() {
 
     const { mutate, isPending } = useTorrentstreamStartStream()
-    const qc = useQueryClient()
 
     const setLoadingState = useSetAtom(__torrentstream__loadingStateAtom)
     const setIsLoaded = useSetAtom(__torrentstream__isLoadedAtom)
-    const { torrentStreamingPlayback, electronPlaybackMethod } = useCurrentDevicePlaybackSettings()
+    const { torrentStreamingPlayback, electronPlaybackMethod, browserTorrentPlayback } = useCurrentDevicePlaybackSettings()
     const { externalPlayerLink } = useExternalPlayerLink()
     const clientId = useAtomValue(clientIdAtom)
 
@@ -61,26 +59,31 @@ export function useHandleStartTorrentStream() {
 
     const { resetForcePlaybackMethod, getForcePlaybackMethod } = useForcePlaybackMethod()
 
-    const getPlaybackType = React.useCallback((forcePlaybackMethod?: ForcePlaybackMethod) => {
-        if (
-            (!forcePlaybackMethod && __isElectronDesktop__ && electronPlaybackMethod === ElectronPlaybackMethod.NativePlayer) ||
-            (forcePlaybackMethod && forcePlaybackMethod === "nativeplayer")
-        ) {
-            return "nativeplayer"
-        }
-        if (!!externalPlayerLink?.length && (
-            (!forcePlaybackMethod && torrentStreamingPlayback === PlaybackTorrentStreaming.ExternalPlayerLink) ||
-            (forcePlaybackMethod && forcePlaybackMethod === "externalPlayerLink")
-        )) {
-            return "externalPlayerLink"
-        }
-        return "default"
-    }, [externalPlayerLink, torrentStreamingPlayback, electronPlaybackMethod])
+    const getPlaybackOptions = (forcePlaybackMethod?: ForcePlaybackMethod) => resolveTorrentPlayback({
+        isElectron: __isElectronDesktop__,
+        browserTorrentPlayback,
+        electronPlaybackMethod,
+        torrentStreamingPlayback,
+        externalPlayerLink,
+        forcePlaybackMethod,
+    })
+
+    function canStartBrowserPlayback(browserPlayback?: boolean, preload?: boolean) {
+        if (!browserPlayback || preload) return true
+        const error = !clientId ? "Waiting for the connection to Seanime. Try playing again once connected." : getBrowserTorrentPlaybackError()
+        if (!error) return true
+        toast.error(error)
+        setLoadingState(null)
+        setIsLoaded(false)
+        return false
+    }
 
     const handleStreamSelection = (params: ManualTorrentStreamSelectionProps) => {
         const forcePlaybackMethod = getForcePlaybackMethod()
         resetForcePlaybackMethod()
-        logger("TORRENT STREAM SELECTION").info("Starting torrent stream", params, getPlaybackType(forcePlaybackMethod))
+        const playback = getPlaybackOptions(forcePlaybackMethod)
+        if (!canStartBrowserPlayback(playback.browserPlayback, params.preload)) return
+        logger("TORRENT STREAM SELECTION").info("Starting torrent stream", params, playback.playbackType)
         mutate({
             mediaId: params.mediaId,
             episodeNumber: params.episodeNumber,
@@ -88,7 +91,7 @@ export function useHandleStartTorrentStream() {
             aniDBEpisode: params.aniDBEpisode,
             autoSelect: false,
             fileIndex: params.chosenFileIndex ?? undefined,
-            playbackType: getPlaybackType(forcePlaybackMethod),
+            ...playback,
             clientId: clientId || "",
             batchEpisodeFiles: params.batchEpisodeFiles,
             preload: params.preload,
@@ -106,14 +109,16 @@ export function useHandleStartTorrentStream() {
     const handleAutoSelectStream = (params: AutoSelectTorrentStreamProps) => {
         const forcePlaybackMethod = getForcePlaybackMethod()
         resetForcePlaybackMethod()
-        logger("TORRENT STREAM SELECTION").info("Starting torrent stream (auto select)", params, getPlaybackType(forcePlaybackMethod))
+        const playback = getPlaybackOptions(forcePlaybackMethod)
+        if (!canStartBrowserPlayback(playback.browserPlayback, params.preload)) return
+        logger("TORRENT STREAM SELECTION").info("Starting torrent stream (auto select)", params, playback.playbackType)
         mutate({
             mediaId: params.mediaId,
             episodeNumber: params.episodeNumber,
             aniDBEpisode: params.aniDBEpisode,
             autoSelect: true,
             torrent: undefined,
-            playbackType: getPlaybackType(forcePlaybackMethod),
+            ...playback,
             clientId: clientId || "",
             preload: params.preload,
         }, {
@@ -128,7 +133,7 @@ export function useHandleStartTorrentStream() {
     }
 
     return {
-        isUsingNativePlayer: __isElectronDesktop__ && electronPlaybackMethod === ElectronPlaybackMethod.NativePlayer,
+        isUsingNativePlayer: getPlaybackOptions().playbackType === "nativeplayer",
         handleStreamSelection,
         handleAutoSelectStream,
         isPending,

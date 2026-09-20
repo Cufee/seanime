@@ -265,14 +265,15 @@ func (s *TorrentStream) Terminate() {
 }
 
 type PlayTorrentStreamOptions struct {
-	ClientId      string
-	EpisodeNumber int
-	AnidbEpisode  string
-	Media         *anilist.BaseAnime
-	Torrent       *torrent.Torrent
-	File          *torrent.File
-	DownloadDir   string
-	OnTerminate   func()
+	ClientId        string
+	BrowserPlayback bool
+	EpisodeNumber   int
+	AnidbEpisode    string
+	Media           *anilist.BaseAnime
+	Torrent         *torrent.Torrent
+	File            *torrent.File
+	DownloadDir     string
+	OnTerminate     func()
 }
 
 // PlayTorrentStream is used by a module to load a new torrent stream.
@@ -298,6 +299,7 @@ func (m *Manager) PlayTorrentStream(ctx context.Context, opts PlayTorrentStreamO
 		downloadDir: opts.DownloadDir,
 		onTerminate: opts.OnTerminate,
 		BaseStream: BaseStream{
+			browserPlayback:       opts.BrowserPlayback,
 			manager:               m,
 			logger:                m.Logger,
 			clientId:              opts.ClientId,

@@ -624,6 +624,7 @@ export interface VideoCoreProps {
     onSubtitlePreferenceChange?: (selection: VideoCoreSubtitleSelection) => void
     onChangePlaybackType?: (type: VideoCore_VideoPlaybackInfo["streamType"]) => void
     inline?: boolean
+    disablePreview?: boolean
     mRef?: React.MutableRefObject<HTMLVideoElement | null>
 }
 
@@ -648,6 +649,7 @@ export function VideoCore(props: VideoCoreProps) {
         onPlaybackRateChange,
         // onFileUploaded,
         inline = false,
+        disablePreview = false,
         inlineClassName,
         onVideoSourceChange,
         hlsPreferredQuality,
@@ -1027,9 +1029,15 @@ export function VideoCore(props: VideoCoreProps) {
         videoElement: videoRef.current,
         streamUrl: streamUrl,
         streamType: streamType,
+        waitForTorrentPieces: streamType === "hls" && state.playbackInfo?.playbackType === "torrent",
         preferredQuality: hlsPreferredQuality,
         onMediaDetached: onHlsMediaDetached,
-        onFatalError: onHlsFatalError,
+        onFatalError: error => {
+            onHlsFatalError?.(error)
+            if (props.id === "native-player") {
+                dispatchVideoErrorEvent("The browser stream could not be loaded. Stop playback and try again.")
+            }
+        },
         onStalled: err => onStalled?.(`HLS stalled: ${err.error?.message || err.details}`),
     })
 
@@ -1258,6 +1266,8 @@ export function VideoCore(props: VideoCoreProps) {
             previewManager.cleanup()
             setPreviewManager(null)
         }
+        // Random thumbnail seeks would compete with the torrent's active transcoder.
+        if (disablePreview) return
         React.startTransition(() => {
             if (videoRef.current && streamUrl) {
                 log.info("Initializing preview manager")
@@ -1274,7 +1284,7 @@ export function VideoCore(props: VideoCoreProps) {
         if (currentPlaybackRef.current) {
             setupPreviewManager()
         }
-    }, [streamType, currentPlaybackRef.current])
+    }, [streamType, currentPlaybackRef.current, disablePreview])
 
     const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
         onTimeUpdate?.(e)

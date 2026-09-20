@@ -62,6 +62,7 @@ export const playbackTorrentStreamingOptions = [
 
 
 export const __playback_torrentStreamingAtom = atomWithStorage<string>("sea-playback-torrentstream", PlaybackTorrentStreaming.Default)
+export const __playback_browserTorrentAtom = atomWithStorage<boolean>("sea-playback-browser-torrent", false)
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -69,12 +70,15 @@ export function useCurrentDevicePlaybackSettings() {
 
     const [downloadedMediaPlayback, setDownloadedMediaPlayback] = useAtom(__playback_downloadedMediaAtom)
     const [torrentStreamingPlayback, setTorrentStreamingPlayback] = useAtom(__playback_torrentStreamingAtom)
+    const [browserTorrentPlayback, setBrowserTorrentPlayback] = useAtom(__playback_browserTorrentAtom)
     const [electronPlaybackMethod, setElectronPlaybackMethod] = useAtom(__playback_electronPlaybackMethodAtom)
     return {
         downloadedMediaPlayback,
         setDownloadedMediaPlayback,
         torrentStreamingPlayback,
         setTorrentStreamingPlayback,
+        browserTorrentPlayback,
+        setBrowserTorrentPlayback,
         electronPlaybackMethod,
         setElectronPlaybackMethod,
     }

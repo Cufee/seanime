@@ -125,3 +125,10 @@ func (h *Handler) HandleDirectstreamGetAttachments(c echo.Context) error {
 
 	return h.App.DirectStreamManager.ServeEchoAttachments(c)
 }
+
+func (h *Handler) HandleDirectstreamBrowserStream(c echo.Context) error {
+	if err := h.guardMediaConsumption(c); err != nil {
+		return err
+	}
+	return h.App.DirectStreamManager.ServeEchoBrowserStream(c)
+}

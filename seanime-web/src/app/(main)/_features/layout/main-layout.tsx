@@ -70,15 +70,13 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
             <SeaCommand />
 
             <PluginManager />
-            {(__isElectronDesktop__) && (
-                <React.Suspense fallback={null}>
-                    {serverStatus?.settings?.mediaPlayer?.mpvPrismEnabled ? (
-                        <MpvCoreLazyWrapper />
-                    ) : (
-                        <NativePlayerLazyWrapper />
-                    )}
-                </React.Suspense>
-            )}
+            <React.Suspense fallback={null}>
+                {__isElectronDesktop__ && serverStatus?.settings?.mediaPlayer?.mpvPrismEnabled ? (
+                    <MpvCoreLazyWrapper />
+                ) : (
+                    <NativePlayerLazyWrapper />
+                )}
+            </React.Suspense>
             <NakamaManager />
             <NakamaWatchPartyChatProvider />
             <NakamaWatchPartyChat />

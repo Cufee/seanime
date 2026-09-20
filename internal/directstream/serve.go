@@ -1,7 +1,6 @@
 package directstream
 
 import (
-	"errors"
 	"net/http"
 	"net/url"
 
@@ -20,9 +19,17 @@ func (m *Manager) ServeEchoStream() http.Handler {
 // ServeEchoAttachments serves the attachments loaded into memory from the current stream.
 func (m *Manager) ServeEchoAttachments(c echo.Context) error {
 	// Get the current stream
+	m.playbackMu.Lock()
 	stream, ok := m.currentStream.Get()
+	m.playbackMu.Unlock()
 	if !ok {
-		return errors.New("no stream")
+		return echo.ErrNotFound
+	}
+	if id := c.QueryParam("id"); id != "" || stream.GetBaseStream().browserPlayback {
+		info, err := stream.LoadPlaybackInfo()
+		if err != nil || id == "" || id != info.ID {
+			return echo.ErrNotFound
+		}
 	}
 
 	filename := c.Param("*")
@@ -32,7 +39,7 @@ func (m *Manager) ServeEchoAttachments(c echo.Context) error {
 	// Get the attachment
 	attachment, ok := stream.GetAttachmentByName(filename)
 	if !ok {
-		return errors.New("attachment not found")
+		return echo.ErrNotFound
 	}
 
 	return c.Blob(200, attachment.Mimetype, attachment.Data)

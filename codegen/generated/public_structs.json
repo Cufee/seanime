@@ -37264,6 +37264,26 @@
         "comments": []
       },
       {
+        "name": "mediastreamRepository",
+        "jsonName": "mediastreamRepository",
+        "goType": "mediastream.Repository",
+        "typescriptType": "Mediastream_Repository",
+        "usedTypescriptType": "Mediastream_Repository",
+        "usedStructName": "mediastream.Repository",
+        "required": false,
+        "public": false,
+        "comments": []
+      },
+      {
+        "name": "serverURL",
+        "jsonName": "serverURL",
+        "goType": "string",
+        "typescriptType": "string",
+        "required": true,
+        "public": false,
+        "comments": []
+      },
+      {
         "name": "playbackMu",
         "jsonName": "playbackMu",
         "goType": "sync.Mutex",
@@ -37624,6 +37644,26 @@
         "required": true,
         "public": true,
         "comments": []
+      },
+      {
+        "name": "MediastreamRepository",
+        "jsonName": "MediastreamRepository",
+        "goType": "mediastream.Repository",
+        "typescriptType": "Mediastream_Repository",
+        "usedTypescriptType": "Mediastream_Repository",
+        "usedStructName": "mediastream.Repository",
+        "required": false,
+        "public": true,
+        "comments": []
+      },
+      {
+        "name": "ServerURL",
+        "jsonName": "ServerURL",
+        "goType": "string",
+        "typescriptType": "string",
+        "required": true,
+        "public": true,
+        "comments": []
       }
     ],
     "comments": [
@@ -37760,6 +37800,26 @@
     "formattedName": "Directstream_BaseStream",
     "package": "directstream",
     "fields": [
+      {
+        "name": "browserPlayback",
+        "jsonName": "browserPlayback",
+        "goType": "bool",
+        "typescriptType": "boolean",
+        "required": true,
+        "public": false,
+        "comments": []
+      },
+      {
+        "name": "browserStream",
+        "jsonName": "browserStream",
+        "goType": "mediastream.BrowserStream",
+        "typescriptType": "Mediastream_BrowserStream",
+        "usedTypescriptType": "Mediastream_BrowserStream",
+        "usedStructName": "mediastream.BrowserStream",
+        "required": false,
+        "public": false,
+        "comments": []
+      },
       {
         "name": "logger",
         "jsonName": "logger",
@@ -38238,6 +38298,15 @@
         "jsonName": "ClientId",
         "goType": "string",
         "typescriptType": "string",
+        "required": true,
+        "public": true,
+        "comments": []
+      },
+      {
+        "name": "BrowserPlayback",
+        "jsonName": "BrowserPlayback",
+        "goType": "bool",
+        "typescriptType": "boolean",
         "required": true,
         "public": true,
         "comments": []
@@ -67194,6 +67263,71 @@
     ]
   },
   {
+    "filepath": "../internal/mediastream/browser.go",
+    "filename": "browser.go",
+    "name": "BrowserStream",
+    "formattedName": "Mediastream_BrowserStream",
+    "package": "mediastream",
+    "fields": [
+      {
+        "name": "session",
+        "jsonName": "session",
+        "goType": "cassette.Session",
+        "typescriptType": "Session",
+        "usedTypescriptType": "Session",
+        "usedStructName": "cassette.Session",
+        "required": false,
+        "public": false,
+        "comments": []
+      },
+      {
+        "name": "transcoder",
+        "jsonName": "transcoder",
+        "goType": "cassette.Cassette",
+        "typescriptType": "Cassette",
+        "usedTypescriptType": "Cassette",
+        "usedStructName": "cassette.Cassette",
+        "required": false,
+        "public": false,
+        "comments": []
+      },
+      {
+        "name": "closeOnce",
+        "jsonName": "closeOnce",
+        "goType": "sync.Once",
+        "typescriptType": "Once",
+        "usedTypescriptType": "Once",
+        "usedStructName": "sync.Once",
+        "required": false,
+        "public": false,
+        "comments": []
+      },
+      {
+        "name": "ctx",
+        "jsonName": "ctx",
+        "goType": "context.Context",
+        "typescriptType": "Context",
+        "usedTypescriptType": "Context",
+        "usedStructName": "context.Context",
+        "required": false,
+        "public": false,
+        "comments": []
+      },
+      {
+        "name": "outDir",
+        "jsonName": "outDir",
+        "goType": "string",
+        "typescriptType": "string",
+        "required": true,
+        "public": false,
+        "comments": []
+      }
+    ],
+    "comments": [
+      " BrowserStream owns the transcoder for one directstream playback."
+    ]
+  },
+  {
     "filepath": "../internal/mediastream/cassette/cassette.go",
     "filename": "cassette.go",
     "name": "NewCassetteOptions",
@@ -67805,6 +67939,39 @@
         "required": true,
         "public": false,
         "comments": []
+      },
+      {
+        "name": "streamJobsMu",
+        "jsonName": "streamJobsMu",
+        "goType": "sync.Mutex",
+        "typescriptType": "Mutex",
+        "usedTypescriptType": "Mutex",
+        "usedStructName": "sync.Mutex",
+        "required": false,
+        "public": false,
+        "comments": []
+      },
+      {
+        "name": "streamJobs",
+        "jsonName": "streamJobs",
+        "goType": "map[int32]streamingJob",
+        "typescriptType": "Record\u003cnumber, streamingJob\u003e",
+        "usedTypescriptType": "streamingJob",
+        "usedStructName": "cassette.streamingJob",
+        "required": false,
+        "public": false,
+        "comments": []
+      },
+      {
+        "name": "streamJobsWg",
+        "jsonName": "streamJobsWg",
+        "goType": "sync.WaitGroup",
+        "typescriptType": "WaitGroup",
+        "usedTypescriptType": "WaitGroup",
+        "usedStructName": "sync.WaitGroup",
+        "required": false,
+        "public": false,
+        "comments": []
       }
     ],
     "comments": [
@@ -68228,6 +68395,46 @@
         "usedTypescriptType": "Logger",
         "usedStructName": "zerolog.Logger",
         "required": false,
+        "public": false,
+        "comments": []
+      },
+      {
+        "name": "streaming",
+        "jsonName": "streaming",
+        "goType": "bool",
+        "typescriptType": "boolean",
+        "required": true,
+        "public": false,
+        "comments": []
+      },
+      {
+        "name": "ctx",
+        "jsonName": "ctx",
+        "goType": "context.Context",
+        "typescriptType": "Context",
+        "usedTypescriptType": "Context",
+        "usedStructName": "context.Context",
+        "required": false,
+        "public": false,
+        "comments": []
+      },
+      {
+        "name": "cancel",
+        "jsonName": "cancel",
+        "goType": "context.CancelFunc",
+        "typescriptType": "CancelFunc",
+        "usedTypescriptType": "CancelFunc",
+        "usedStructName": "context.CancelFunc",
+        "required": false,
+        "public": false,
+        "comments": []
+      },
+      {
+        "name": "startTime",
+        "jsonName": "startTime",
+        "goType": "float64",
+        "typescriptType": "number",
+        "required": true,
         "public": false,
         "comments": []
       }
@@ -69946,6 +70153,15 @@
         "comments": []
       },
       {
+        "name": "StartTime",
+        "jsonName": "startTime",
+        "goType": "float64",
+        "typescriptType": "number",
+        "required": false,
+        "public": true,
+        "comments": []
+      },
+      {
         "name": "Container",
         "jsonName": "container",
         "goType": "string",
@@ -70797,6 +71013,17 @@
         ]
       },
       {
+        "name": "Duration",
+        "jsonName": "Duration",
+        "goType": "uint64",
+        "typescriptType": "number",
+        "required": true,
+        "public": true,
+        "comments": [
+          " Duration in nanoseconds; zero when absent"
+        ]
+      },
+      {
         "name": "Position",
         "jsonName": "Position",
         "goType": "uint64",
@@ -70806,6 +71033,35 @@
         "comments": [
           " Absolute byte position of the cluster"
         ]
+      },
+      {
+        "name": "RelativePosition",
+        "jsonName": "RelativePosition",
+        "goType": "uint64",
+        "typescriptType": "number",
+        "required": true,
+        "public": true,
+        "comments": [
+          " Position of the block within the cluster"
+        ]
+      },
+      {
+        "name": "Block",
+        "jsonName": "Block",
+        "goType": "uint64",
+        "typescriptType": "number",
+        "required": true,
+        "public": true,
+        "comments": []
+      },
+      {
+        "name": "Track",
+        "jsonName": "Track",
+        "goType": "uint8",
+        "typescriptType": "number",
+        "required": true,
+        "public": true,
+        "comments": []
       }
     ],
     "comments": []
@@ -71005,7 +71261,7 @@
         "required": true,
         "public": true,
         "comments": [
-          " Start time in seconds"
+          " Start time in milliseconds"
         ]
       },
       {
@@ -71016,7 +71272,7 @@
         "required": true,
         "public": true,
         "comments": [
-          " Duration in seconds"
+          " Duration in milliseconds"
         ]
       },
       {
@@ -76563,6 +76819,24 @@
         ]
       },
       {
+        "name": "DeliveryFormat",
+        "jsonName": "deliveryFormat",
+        "goType": "string",
+        "typescriptType": "string",
+        "required": false,
+        "public": true,
+        "comments": []
+      },
+      {
+        "name": "DisablePreview",
+        "jsonName": "disablePreview",
+        "goType": "bool",
+        "typescriptType": "boolean",
+        "required": false,
+        "public": true,
+        "comments": []
+      },
+      {
         "name": "ContentLength",
         "jsonName": "contentLength",
         "goType": "int64",
@@ -79562,6 +79836,24 @@
         "goType": "string",
         "typescriptType": "string",
         "required": true,
+        "public": true,
+        "comments": []
+      },
+      {
+        "name": "DeliveryFormat",
+        "jsonName": "deliveryFormat",
+        "goType": "string",
+        "typescriptType": "string",
+        "required": false,
+        "public": true,
+        "comments": []
+      },
+      {
+        "name": "DisablePreview",
+        "jsonName": "disablePreview",
+        "goType": "bool",
+        "typescriptType": "boolean",
+        "required": false,
         "public": true,
         "comments": []
       },
@@ -98397,6 +98689,15 @@
         "usedTypescriptType": "Torrentstream_PlaybackType",
         "usedStructName": "torrentstream.PlaybackType",
         "required": true,
+        "public": true,
+        "comments": []
+      },
+      {
+        "name": "BrowserPlayback",
+        "jsonName": "browserPlayback",
+        "goType": "bool",
+        "typescriptType": "boolean",
+        "required": false,
         "public": true,
         "comments": []
       },

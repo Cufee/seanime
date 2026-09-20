@@ -438,6 +438,8 @@ func toNativePlaybackInfo(info *player.PlaybackInfo) *nativeplayer.PlaybackInfo 
 		StreamPath:         info.StreamPath,
 		MimeType:           info.MimeType,
 		StreamUrl:          info.StreamURL,
+		DeliveryFormat:     info.DeliveryFormat,
+		DisablePreview:     info.DisablePreview,
 		ContentLength:      info.ContentLength,
 		MkvMetadata:        info.MkvMetadata,
 		SubtitleTracks:     tracks,

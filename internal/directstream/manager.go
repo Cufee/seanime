@@ -9,6 +9,7 @@ import (
 	"seanime/internal/events"
 	"seanime/internal/library/anime"
 	"seanime/internal/mediacore"
+	"seanime/internal/mediastream"
 	"seanime/internal/mkvparser"
 	"seanime/internal/nativeplayer"
 	"seanime/internal/platforms/platform"
@@ -38,10 +39,12 @@ type (
 		refreshAnimeCollectionFunc func()                                      // This function is called to refresh the AniList collection
 		hmacTokenFunc              func(endpoint string, symbol string) string // Generates HMAC token query param for stream URLs
 
-		nativePlayer         *nativeplayer.NativePlayer
-		videoCore            *videocore.VideoCore
-		mediacoreCoordinator *mediacore.Coordinator
-		mediacoreSubscriber  *mediacore.Subscriber
+		nativePlayer          *nativeplayer.NativePlayer
+		videoCore             *videocore.VideoCore
+		mediacoreCoordinator  *mediacore.Coordinator
+		mediacoreSubscriber   *mediacore.Subscriber
+		mediastreamRepository *mediastream.Repository
+		serverURL             string
 
 		// --------- Playback Context -------- //
 
@@ -95,6 +98,8 @@ type (
 		VideoCore                  *videocore.VideoCore
 		MediacoreCoordinator       *mediacore.Coordinator
 		HMACTokenFunc              func(endpoint string, symbol string) string
+		MediastreamRepository      *mediastream.Repository
+		ServerURL                  string
 	}
 )
 
@@ -114,6 +119,8 @@ func NewManager(options NewManagerOptions) *Manager {
 		videoCore:                  options.VideoCore,
 		mediacoreCoordinator:       options.MediacoreCoordinator,
 		defaultPlaybackTarget:      PlaybackTargetVideoCore,
+		mediastreamRepository:      options.MediastreamRepository,
+		serverURL:                  options.ServerURL,
 		parserCache:                result.NewCache[string, *mkvparser.MetadataParser](),
 	}
 	if ret.mediacoreCoordinator != nil {

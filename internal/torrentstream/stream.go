@@ -40,6 +40,7 @@ type StartStreamOptions struct {
 	UserAgent         string                           `json:"userAgent"`
 	ClientId          string                           `json:"clientId"`
 	PlaybackType      PlaybackType                     `json:"playbackType"`
+	BrowserPlayback   bool                             `json:"browserPlayback,omitempty"`
 	BatchEpisodeFiles *hibiketorrent.BatchEpisodeFiles `json:"batchEpisodeFiles"`
 	media             *anilist.BaseAnime               `json:"-"`
 }
@@ -117,6 +118,9 @@ func (r *Repository) dropStalePlaybackTorrent(stream *playbackTorrent) {
 // StartStream is called by the client to start streaming a torrent
 func (r *Repository) StartStream(ctx context.Context, opts *StartStreamOptions) (err error) {
 	defer util.HandlePanicInModuleWithError("torrentstream/stream/StartStream", &err)
+	if opts.BrowserPlayback && (opts.PlaybackType != PlaybackTypeNativePlayer || opts.ClientId == "") {
+		return errors.New("browser playback requires the native player and a client ID")
+	}
 	startLaunchTime := time.Now()
 	requestId := r.incStartRequestId()
 	ctx, finishStart := r.beginStartRequest(ctx, requestId)
@@ -149,10 +153,14 @@ func (r *Repository) StartStream(ctx context.Context, opts *StartStreamOptions) 
 	}
 
 	if opts.PlaybackType == PlaybackTypeNativePlayer {
-		r.directStreamManager.BeginOpen(opts.ClientId, "Selecting torrent...", func() {
+		target := r.directStreamManager.GetPlaybackTarget()
+		if opts.BrowserPlayback {
+			target = directstream.PlaybackTargetVideoCore
+		}
+		r.directStreamManager.BeginOpenWithTarget(opts.ClientId, "Selecting torrent...", func() {
 			closeReadyCh()
 			_ = r.StopStream(true)
-		})
+		}, target)
 	}
 
 	r.streamActionMu.Lock()
@@ -333,13 +341,14 @@ func (r *Repository) StartStream(ctx context.Context, opts *StartStreamOptions) 
 		//
 		case PlaybackTypeNativePlayer:
 			readyCh, err = r.directStreamManager.PlayTorrentStream(ctx, directstream.PlayTorrentStreamOptions{
-				ClientId:      opts.ClientId,
-				EpisodeNumber: opts.EpisodeNumber,
-				AnidbEpisode:  opts.AniDBEpisode,
-				Media:         media.ToBaseAnime(),
-				Torrent:       r.client.currentTorrent.MustGet(),
-				File:          r.client.currentFile.MustGet(),
-				DownloadDir:   r.GetDownloadDir(),
+				ClientId:        opts.ClientId,
+				EpisodeNumber:   opts.EpisodeNumber,
+				AnidbEpisode:    opts.AniDBEpisode,
+				Media:           media.ToBaseAnime(),
+				Torrent:         r.client.currentTorrent.MustGet(),
+				File:            r.client.currentFile.MustGet(),
+				DownloadDir:     r.GetDownloadDir(),
+				BrowserPlayback: opts.BrowserPlayback,
 				OnTerminate: func() {
 					_ = r.StopStream(true)
 				},

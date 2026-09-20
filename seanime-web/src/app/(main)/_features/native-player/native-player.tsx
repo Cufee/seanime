@@ -332,7 +332,7 @@ export function NativePlayer() {
                 media: state.playbackInfo.media,
                 episode: state.playbackInfo.episode,
                 localFile: state.playbackInfo.localFile,
-                streamType: "native",
+                streamType: state.playbackInfo.deliveryFormat === "hls" ? "hls" : "native",
             } : null,
         }
     }, [state])
@@ -344,6 +344,13 @@ export function NativePlayer() {
                 state={ps}
                 aniSkipData={aniSkipData}
                 onTerminateStream={handleTerminateStream}
+                disablePreview={state.playbackInfo?.disablePreview}
+                onHlsFatalError={() => {
+                    const message = "The browser stream could not be loaded. Stop playback and try again."
+                    setState(draft => {
+                        draft.playbackError = message
+                    })
+                }}
             />
         </>
     )

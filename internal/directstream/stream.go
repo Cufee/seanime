@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"seanime/internal/api/anilist"
 	"seanime/internal/library/anime"
+	"seanime/internal/mediastream"
 	"seanime/internal/mkvparser"
 	"seanime/internal/player"
 	"seanime/internal/util/result"
@@ -423,6 +424,13 @@ func (m *Manager) loadStream(stream Stream) {
 		m.preStreamError(stream, fmt.Errorf("failed to load playback info: %w", err))
 		return
 	}
+	if base := stream.GetBaseStream(); base != nil && base.browserPlayback {
+		playbackInfo, err = m.prepareBrowserPlayback(ctx, stream, playbackInfo)
+		if err != nil {
+			m.preStreamError(stream, fmt.Errorf("failed to prepare browser playback: %w", err))
+			return
+		}
+	}
 	m.playbackMu.Lock()
 	shouldStopOpening = ctx.Err() != nil || m.shouldStopOpeningLocked(stream.ClientId()) || !m.isCurrentStreamLocked(stream)
 	if shouldStopOpening {
@@ -518,6 +526,13 @@ func (m *Manager) listenToPlayerEvents() {
 			case *player.LoadedMetadataEvent:
 				m.Logger.Debug().Msgf("directstream: Video loaded metadata")
 				if key.Target == player.TargetVideoCore {
+					if base := cs.GetBaseStream(); base != nil && base.browserPlayback {
+						// HLS recovery reloads metadata and rebuilds the client's
+						// subtitle manager. Replay in a fresh generation, including
+						// when a previous seek has already advanced past generation 0.
+						m.startSubtitleStreamForTime(cs, playbackInfo, ev.CurrentTime, ev.Duration)
+						continue
+					}
 					playbackCtx := m.playbackCtx
 					if playbackCtx == nil {
 						continue
@@ -550,7 +565,7 @@ func (m *Manager) listenToPlayerEvents() {
 			case *player.SeekedEvent:
 				m.Logger.Trace().Float64("currentTime", ev.CurrentTime).Msg("directstream: Player seeked")
 				if key.Target == player.TargetVideoCore {
-					go m.startSubtitleStreamForTime(cs, playbackInfo, ev.CurrentTime, ev.Duration)
+					m.startSubtitleStreamForTime(cs, playbackInfo, ev.CurrentTime, ev.Duration)
 				}
 			case *player.ErrorEvent:
 				m.Logger.Debug().Msgf("directstream: Video error, Error: %s", ev.Error)
@@ -586,6 +601,8 @@ func (m *Manager) unloadStream(targets ...Stream) {
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 type BaseStream struct {
+	browserPlayback        bool
+	browserStream          *mediastream.BrowserStream
 	logger                 *zerolog.Logger
 	clientId               string
 	contentType            string

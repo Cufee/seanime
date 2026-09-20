@@ -283,12 +283,14 @@ func (a *App) initModulesOnce() {
 	// +---------------------+
 
 	a.DirectStreamManager = directstream.NewManager(directstream.NewManagerOptions{
-		Logger:              a.Logger,
-		WSEventManager:      a.WSEventManager,
-		ContinuityManager:   a.ContinuityManager,
-		MetadataProviderRef: a.MetadataProviderRef,
-		DiscordPresence:     a.DiscordPresence,
-		PlatformRef:         a.AnilistPlatformRef,
+		MediastreamRepository: a.MediastreamRepository,
+		ServerURL:             a.Config.GetServerURI("127.0.0.1"),
+		Logger:                a.Logger,
+		WSEventManager:        a.WSEventManager,
+		ContinuityManager:     a.ContinuityManager,
+		MetadataProviderRef:   a.MetadataProviderRef,
+		DiscordPresence:       a.DiscordPresence,
+		PlatformRef:           a.AnilistPlatformRef,
 		RefreshAnimeCollectionFunc: func() {
 			_, _ = a.RefreshAnimeCollection()
 		},

@@ -132,8 +132,53 @@ func subtitleEventId(event *mkvparser.SubtitleEvent) string {
 	return fmt.Sprintf("%d:%s:%f:%f:%x", event.TrackNumber, event.CodecID, event.StartTime, event.Duration, hash.Sum64())
 }
 
-func (s *BaseStream) shouldSendSubtitleEvent(event *mkvparser.SubtitleEvent) bool {
+// The Matroska parser and its cue index retain source timestamps. Browser HLS
+// starts at zero, so convert only at the playback boundary and leave cached
+// events untouched for subsequent extraction generations.
+func subtitleEventsForPlayback(events []*mkvparser.SubtitleEvent, sourceStartTime float64) []*mkvparser.SubtitleEvent {
+	if sourceStartTime == 0 {
+		return events
+	}
+	ret := make([]*mkvparser.SubtitleEvent, len(events))
+	for i, event := range events {
+		if event == nil {
+			continue
+		}
+		copy := *event
+		copy.StartTime -= sourceStartTime * 1000 // Subtitle events use milliseconds.
+		if copy.StartTime < 0 {
+			// JASSUB's createEvent API uses an unsigned start timestamp. Keep
+			// an event overlapping the playback origin visible until its
+			// original end rather than wrapping a negative start timestamp.
+			copy.Duration = max(0, copy.Duration+copy.StartTime)
+			copy.StartTime = 0
+		}
+		ret[i] = &copy
+	}
+	return ret
+}
+
+func (s *BaseStream) subtitleSourceStartTime() float64 {
+	if !s.browserPlayback || s.manager == nil {
+		return 0
+	}
+	s.manager.playbackMu.Lock()
+	delivery := s.browserStream
+	s.manager.playbackMu.Unlock()
+	if delivery == nil {
+		return 0
+	}
+	return delivery.SourceStartTime()
+}
+
+func (s *BaseStream) shouldSendSubtitleEvent(event *mkvparser.SubtitleEvent, generation int64) bool {
 	if event == nil {
+		return false
+	}
+	s.subtitleSeekMu.Lock()
+	defer s.subtitleSeekMu.Unlock()
+	// A cancelled reader must not populate the next generation's cache.
+	if generation != s.subtitleGeneration.Load() {
 		return false
 	}
 	if s.subtitleEventCache == nil {
@@ -176,7 +221,7 @@ func (s *BaseStream) sendSubtitleEvents(ctx context.Context, stream Stream, even
 		}
 	}
 
-	s.manager.nativePlayer.SubtitleEventsWithGen(stream.ClientId(), events, request.playbackID, request.generation, request.seekTime)
+	s.manager.nativePlayer.SubtitleEventsWithGen(stream.ClientId(), subtitleEventsForPlayback(events, s.subtitleSourceStartTime()), request.playbackID, request.generation, request.seekTime)
 	s.subtitleLastSentGen = request.generation
 	s.subtitleLastSent = time.Now()
 	return true
@@ -204,35 +249,52 @@ func (s *BaseStream) waitForSubtitleSend(ctx context.Context, minSendInterval ti
 }
 
 func subtitleOffsetForTime(playbackInfo *player.PlaybackInfo, currentTime float64, duration float64) int64 {
-	if playbackInfo == nil || playbackInfo.ContentLength <= 0 || currentTime <= 0 {
+	if playbackInfo == nil || playbackInfo.ContentLength <= 0 || currentTime <= 0 || math.IsNaN(currentTime) || math.IsInf(currentTime, 0) {
 		return 0
 	}
 
-	// Try to seek using Matroska cues if available
-	if playbackInfo.MkvMetadata != nil && len(playbackInfo.MkvMetadata.Cues) > 0 {
-		preroll := 10.0 // 10 seconds default for text formats
-		for _, track := range playbackInfo.MkvMetadata.SubtitleTracks {
+	if metadata := playbackInfo.MkvMetadata; metadata != nil && len(metadata.SubtitleTracks) > 0 {
+		// Video keyframes and a fixed preroll cannot locate a subtitle that
+		// started much earlier but remains visible at the seek target. Use
+		// subtitle cue durations to include every overlapping event instead.
+		targetTimeNs := currentTime * 1e9
+		var earliestPosition uint64
+		for _, track := range metadata.SubtitleTracks {
+			// PGS needs palette/object state from preceding packets. Until we
+			// index decoder acquisition points, rebuild it from the beginning.
 			if track.CodecID == "S_HDMV/PGS" {
-				preroll = 30.0 // 30 seconds for PGS
-				break
+				return 0
+			}
+			indexed := false
+			for _, cue := range metadata.Cues {
+				if int64(cue.Track) != track.Number {
+					continue
+				}
+				indexed = true
+				if float64(cue.Time) <= targetTimeNs {
+					// Without the duration, an earlier cue may still be active.
+					if cue.Duration == 0 {
+						return 0
+					}
+					if float64(cue.Duration) < targetTimeNs-float64(cue.Time) {
+						continue
+					}
+				}
+				if cue.Position == 0 || cue.Position >= uint64(playbackInfo.ContentLength) {
+					return 0
+				}
+				if earliestPosition == 0 || cue.Position < earliestPosition {
+					earliestPosition = cue.Position
+				}
+			}
+			// Some muxers index only video. Scanning subtitle packets from the
+			// beginning is the correctness fallback for an unindexed track.
+			// The demuxer seeks past masked audio/video payloads.
+			if !indexed {
+				return 0
 			}
 		}
-
-		targetTimeNs := uint64(math.Max(currentTime-preroll, 0) * 1e9)
-		i := sort.Search(len(playbackInfo.MkvMetadata.Cues), func(i int) bool {
-			return playbackInfo.MkvMetadata.Cues[i].Time >= targetTimeNs
-		})
-
-		if i > 0 && (i == len(playbackInfo.MkvMetadata.Cues) || playbackInfo.MkvMetadata.Cues[i].Time > targetTimeNs) {
-			i--
-		}
-
-		if i >= len(playbackInfo.MkvMetadata.Cues) {
-			i = len(playbackInfo.MkvMetadata.Cues) - 1
-		}
-
-		cue := playbackInfo.MkvMetadata.Cues[i]
-		return int64(cue.Position)
+		return int64(earliestPosition)
 	}
 
 	effectiveDuration := duration
@@ -268,49 +330,62 @@ func (m *Manager) startSubtitleStreamForTime(stream Stream, playbackInfo *player
 	if _, ok := playbackInfo.MkvMetadataParser.Get(); !ok {
 		return
 	}
+	m.playbackMu.Lock()
+	currentStream, isCurrent := m.currentStream.Get()
 	playbackCtx := m.playbackCtx
+	m.playbackMu.Unlock()
+	if !isCurrent || currentStream != stream {
+		return
+	}
 	if playbackCtx == nil {
 		return
 	}
 
-	offset := subtitleOffsetForTime(playbackInfo, currentTime, duration)
-
 	baseStream := stream.GetBaseStream()
+	if baseStream == nil {
+		return
+	}
+	sourceStartTime := baseStream.subtitleSourceStartTime()
+	offset := subtitleOffsetForTime(playbackInfo, currentTime+sourceStartTime, duration+sourceStartTime)
 	request := baseStream.beginSubtitleSeek(currentTime)
 
-	switch s := stream.(type) {
-	case *LocalFileStream:
-		reader, err := s.newReader()
-		if err != nil {
-			m.Logger.Warn().Err(err).Int64("offset", offset).Msg("directstream: Failed to create subtitle reader after seek")
-			return
+	// Assign the generation in player-event order, before asynchronous reader
+	// creation. Otherwise a delayed metadata refresh can supersede a later seek.
+	go func() {
+		switch s := stream.(type) {
+		case *LocalFileStream:
+			reader, err := s.newReader()
+			if err != nil {
+				m.Logger.Warn().Err(err).Int64("offset", offset).Msg("directstream: Failed to create subtitle reader after seek")
+				return
+			}
+			s.startSubtitleStream(s, playbackCtx, reader, offset, request)
+		case *TorrentStream:
+			reader := s.newSubtitleReader()
+			s.startSubtitleStream(s, playbackCtx, reader, offset, request)
+		case *UrlStream:
+			reader, err := s.newMetadataReader()
+			if err != nil {
+				m.Logger.Warn().Err(err).Int64("offset", offset).Msg("directstream: Failed to create subtitle reader after seek")
+				return
+			}
+			s.startSubtitleStream(s, playbackCtx, reader, offset, request)
+		case *DebridStream:
+			reader, err := s.newMetadataReader()
+			if err != nil {
+				m.Logger.Warn().Err(err).Int64("offset", offset).Msg("directstream: Failed to create subtitle reader after seek")
+				return
+			}
+			s.startSubtitleStream(s, playbackCtx, reader, offset, request)
+		case *Nakama:
+			reader, err := s.newMetadataReader()
+			if err != nil {
+				m.Logger.Warn().Err(err).Int64("offset", offset).Msg("directstream: Failed to create subtitle reader after seek")
+				return
+			}
+			s.startSubtitleStream(s, playbackCtx, reader, offset, request)
 		}
-		s.startSubtitleStream(s, playbackCtx, reader, offset, request)
-	case *TorrentStream:
-		reader := s.newSubtitleReader()
-		s.startSubtitleStream(s, playbackCtx, reader, offset, request)
-	case *UrlStream:
-		reader, err := s.newMetadataReader()
-		if err != nil {
-			m.Logger.Warn().Err(err).Int64("offset", offset).Msg("directstream: Failed to create subtitle reader after seek")
-			return
-		}
-		s.startSubtitleStream(s, playbackCtx, reader, offset, request)
-	case *DebridStream:
-		reader, err := s.newMetadataReader()
-		if err != nil {
-			m.Logger.Warn().Err(err).Int64("offset", offset).Msg("directstream: Failed to create subtitle reader after seek")
-			return
-		}
-		s.startSubtitleStream(s, playbackCtx, reader, offset, request)
-	case *Nakama:
-		reader, err := s.newMetadataReader()
-		if err != nil {
-			m.Logger.Warn().Err(err).Int64("offset", offset).Msg("directstream: Failed to create subtitle reader after seek")
-			return
-		}
-		s.startSubtitleStream(s, playbackCtx, reader, offset, request)
-	}
+	}()
 }
 
 func (s *BaseStream) beginSubtitleSeek(seekTime float64) subtitleRequest {
@@ -329,6 +404,12 @@ func (s *BaseStream) beginSubtitleSeek(seekTime float64) subtitleRequest {
 		value.Stop(false)
 		return true
 	})
+	// Deduplicate within one extraction generation. The previous generation
+	// may have cached an event whose pending batch was cancelled before send,
+	// and the client may need replay after reloading its media source.
+	if s.subtitleEventCache != nil {
+		s.subtitleEventCache.Clear()
+	}
 
 	return request
 }
@@ -430,7 +511,7 @@ func (s *BaseStream) startSubtitleStreamP(stream Stream, playbackCtx context.Con
 	s.activeSubtitleStreams.Set(subtitleStreamId, subtitleStream)
 	s.subtitleSeekMu.Unlock()
 
-	subtitleCh, errCh, _ := subtitleStream.parser.ExtractSubtitles(ctx, newReader, offset, backoffBytes, request.seekTime)
+	subtitleCh, errCh, _ := subtitleStream.parser.ExtractSubtitles(ctx, newReader, offset, backoffBytes, request.seekTime+s.subtitleSourceStartTime())
 
 	firstEventSentCh := make(chan struct{}) // no-op
 	closeFirstEventSentOnce := sync.Once{}
@@ -550,7 +631,7 @@ func (s *BaseStream) startSubtitleStreamP(stream Stream, playbackCtx context.Con
 				if subtitle != nil {
 					onFirstEventSent()
 					setLastSubtitleEvent(subtitle)
-					if !s.shouldSendSubtitleEvent(subtitle) {
+					if !s.shouldSendSubtitleEvent(subtitle, request.generation) {
 						continue
 					}
 

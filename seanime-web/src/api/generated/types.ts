@@ -3763,9 +3763,19 @@ export type MKVParser_CueInfo = {
      */
     Time: number
     /**
+     * Duration in nanoseconds; zero when absent
+     */
+    Duration: number
+    /**
      * Absolute byte position of the cluster
      */
     Position: number
+    /**
+     * Position of the block within the cluster
+     */
+    RelativePosition: number
+    Block: number
+    Track: number
 }
 
 /**
@@ -3813,11 +3823,11 @@ export type MKVParser_SubtitleEvent = {
      */
     text: string
     /**
-     * Start time in seconds
+     * Start time in milliseconds
      */
     startTime: number
     /**
-     * Duration in seconds
+     * Duration in milliseconds
      */
     duration: number
     /**
@@ -4755,6 +4765,8 @@ export type NativePlayer_PlaybackInfo = {
      * URL of the stream
      */
     streamUrl: string
+    deliveryFormat?: string
+    disablePreview?: boolean
     /**
      * Size of the stream in bytes
      */
@@ -4950,6 +4962,8 @@ export type Player_PlaybackInfo = {
     playbackType: Player_PlaybackType
     playbackUri?: string
     streamUrl: string
+    deliveryFormat?: string
+    disablePreview?: boolean
     streamPath?: string
     mimeType?: string
     contentLength?: number
@@ -5539,6 +5553,7 @@ export type Torrentstream_StartStreamOptions = {
     userAgent: string
     clientId: string
     playbackType: Torrentstream_PlaybackType
+    browserPlayback?: boolean
     batchEpisodeFiles?: HibikeTorrent_BatchEpisodeFiles
 }
 
@@ -6104,6 +6119,7 @@ export type MediaInfo = {
     mimeCodec?: string
     size: number
     duration: number
+    startTime?: number
     container?: string
     video?: Video
     videos?: Array<Video>

@@ -49,6 +49,7 @@ func InitRoutes(app *core.App, e *echo.Echo) {
 		"/api/v1/torrent-client/list",
 		"/api/v1/proxy",
 		"/api/v1/directstream/stream",
+		"/api/v1/directstream/hls/",
 	}
 
 	// Logging middleware
@@ -469,6 +470,8 @@ func InitRoutes(app *core.App, e *echo.Echo) {
 	v1.POST("/directstream/play/localfile", h.HandleDirectstreamPlayLocalFile)
 	v1.GET("/directstream/stream", echo.WrapHandler(h.HandleDirectstreamGetStream()))
 	v1.HEAD("/directstream/stream", echo.WrapHandler(h.HandleDirectstreamGetStream()))
+	v1.GET("/directstream/hls/:id/*", h.HandleDirectstreamBrowserStream)
+	v1.HEAD("/directstream/hls/:id/*", h.HandleDirectstreamBrowserStream)
 	v1.GET("/directstream/att/*", h.HandleDirectstreamGetAttachments)
 	v1.POST("/directstream/subs/convert-subs", h.HandleDirectstreamConvertSubs)
 
