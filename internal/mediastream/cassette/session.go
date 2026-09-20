@@ -34,7 +34,17 @@ type Session struct {
 	settings *Settings
 	governor *Governor
 	logger   *zerolog.Logger
+
+	// Streaming sessions receive their timeline up front and never scan the source.
+	streaming bool
+	ctx       context.Context
+	cancel    context.CancelFunc
+	startTime float64
 }
+
+// SourceStartTime is the source timestamp offset removed from the browser's
+// presentation timeline. Subtitle and chapter delivery must remove it too.
+func (s *Session) SourceStartTime() float64 { return s.startTime }
 
 // NewSession creates a transcode session and starts keyframe extraction
 func NewSession(
@@ -87,12 +97,18 @@ func (s *Session) GetMaster(token string) string {
 
 // GetVideoIndex returns the hls variant playlist for a quality
 func (s *Session) GetVideoIndex(q Quality, token string) (string, error) {
+	if err := s.validateVideoQuality(q); err != nil {
+		return "", err
+	}
 	p := s.getVideoPipeline(q)
 	return p.GetIndex(token)
 }
 
 // GetVideoSegment returns the path to a video segment, blocking until ready
 func (s *Session) GetVideoSegment(ctx context.Context, q Quality, seg int32) (string, error) {
+	if err := s.validateVideoQuality(q); err != nil {
+		return "", err
+	}
 	// The timeout is bounded by the pipeline constraints, but the request controls early cancellation.
 	type result struct {
 		path string
@@ -116,12 +132,18 @@ func (s *Session) GetVideoSegment(ctx context.Context, q Quality, seg int32) (st
 
 // GetAudioIndex returns the hls variant playlist for an audio track
 func (s *Session) GetAudioIndex(audio int32, token string) (string, error) {
+	if err := s.validateAudioTrack(audio); err != nil {
+		return "", err
+	}
 	p := s.getAudioPipeline(audio)
 	return p.GetIndex(token)
 }
 
 // GetAudioSegment returns the path to an audio segment
 func (s *Session) GetAudioSegment(ctx context.Context, audio, seg int32) (string, error) {
+	if err := s.validateAudioTrack(audio); err != nil {
+		return "", err
+	}
 	p := s.getAudioPipeline(audio)
 	return p.GetSegment(ctx, seg)
 }
@@ -136,7 +158,7 @@ func (s *Session) getVideoPipeline(q Quality) *Pipeline {
 		return p
 	}
 
-	s.logger.Trace().Str("file", filepath.Base(s.Path)).Str("quality", string(q)).
+	s.logger.Trace().Str("file", s.logPath()).Str("quality", string(q)).
 		Msg("cassette: creating video pipeline")
 
 	// Check if this quality can transmux.
@@ -170,9 +192,24 @@ func (s *Session) getVideoPipeline(q Quality) *Pipeline {
 			}
 
 			width := closestEven(int32(s.Info.Video.Width))
+			height := int32(s.Info.Video.Height)
+			bufferMultiplier := uint32(5)
+			if s.streaming {
+				for _, entry := range s.Ladder {
+					if entry.Quality == Original {
+						width, height = entry.Width, entry.Height
+					}
+				}
+				avgBitrate, maxBitrate = min(avgBitrate, 5_000_000), min(maxBitrate, 8_000_000)
+				bufferMultiplier = 2
+			}
+			filter := BuildVideoFilter(&s.settings.HwAccel, s.Info.Video, width, height)
+			if s.streaming {
+				filter += ",fps=fps='min(source_fps,30)'"
+			}
 			args = append(args,
-				"-vf", BuildVideoFilter(&s.settings.HwAccel, s.Info.Video, width, int32(s.Info.Video.Height)),
-				"-bufsize", fmt.Sprint(maxBitrate*5),
+				"-vf", filter,
+				"-bufsize", fmt.Sprint(maxBitrate*bufferMultiplier),
 				"-b:v", fmt.Sprint(avgBitrate),
 				"-maxrate", fmt.Sprint(maxBitrate),
 			)
@@ -193,10 +230,16 @@ func (s *Session) getVideoPipeline(q Quality) *Pipeline {
 		width := closestEven(int32(
 			float64(q.Height()) / float64(s.Info.Video.Height) * float64(s.Info.Video.Width),
 		))
+		filter := BuildVideoFilter(&s.settings.HwAccel, s.Info.Video, width, int32(q.Height()))
+		bufferMultiplier := uint32(5)
+		if s.streaming {
+			filter += ",fps=fps='min(source_fps,30)'"
+			bufferMultiplier = 2
+		}
 		args = append(args,
-			"-vf", BuildVideoFilter(&s.settings.HwAccel, s.Info.Video, width, int32(q.Height())),
+			"-vf", filter,
 			// "-vf", fmt.Sprintf(s.settings.HwAccel.ScaleFilter, width, q.Height()),
-			"-bufsize", fmt.Sprint(q.MaxBitrate()*5),
+			"-bufsize", fmt.Sprint(q.MaxBitrate()*bufferMultiplier),
 			"-b:v", fmt.Sprint(q.AverageBitrate()),
 			"-maxrate", fmt.Sprint(q.MaxBitrate()),
 		)
@@ -244,7 +287,7 @@ func (s *Session) getAudioPipeline(idx int32) *Pipeline {
 		return p
 	}
 
-	s.logger.Trace().Str("file", filepath.Base(s.Path)).Int32("audio", idx).
+	s.logger.Trace().Str("file", s.logPath()).Int32("audio", idx).
 		Msg("cassette: creating audio pipeline")
 
 	// Get source audio info.
@@ -263,6 +306,11 @@ func (s *Session) getAudioPipeline(idx int32) *Pipeline {
 	}
 	if srcAudio != nil {
 		decision = DecideAudioTranscode(srcAudio)
+	}
+	if s.streaming {
+		// A single conservative audio format also covers AAC profiles and
+		// channel layouts which the browser cannot decode directly.
+		decision = AudioTranscodeDecision{Codec: "aac", Bitrate: "160k", Channels: "2"}
 	}
 
 	if decision.Copy {
@@ -312,6 +360,9 @@ func (s *Session) getAudioPipeline(idx int32) *Pipeline {
 
 // Kill stops all running encode pipelines
 func (s *Session) Kill() {
+	if s.cancel != nil {
+		s.cancel()
+	}
 	s.videosMu.Lock()
 	for _, p := range s.videos {
 		p.Kill()
@@ -327,7 +378,14 @@ func (s *Session) Kill() {
 
 // Destroy stops everything and removes output directory
 func (s *Session) Destroy() {
-	s.logger.Debug().Str("path", s.Path).Msg("cassette: destroying session")
+	s.logger.Debug().Str("path", s.logPath()).Msg("cassette: destroying session")
 	s.Kill()
 	_ = os.RemoveAll(s.Out)
+}
+
+func (s *Session) logPath() string {
+	if s.streaming {
+		return "stream:" + s.Keyframes.Sha
+	}
+	return filepath.Base(s.Path)
 }

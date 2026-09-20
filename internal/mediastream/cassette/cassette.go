@@ -104,8 +104,10 @@ func (c *Cassette) Destroy() {
 	c.tracker.Stop()
 	c.logger.Debug().Msg("cassette: destroying all sessions")
 
+	hadFileSessions := false
 	c.sessions.Range(func(key, value any) bool {
 		if s, ok := value.(*Session); ok {
+			hadFileSessions = hadFileSessions || !s.streaming
 			s.Destroy()
 		}
 		c.sessions.Delete(key)
@@ -113,7 +115,9 @@ func (c *Cassette) Destroy() {
 	})
 
 	// clear keyframe cache
-	ClearKeyframeCache()
+	if hadFileSessions {
+		ClearKeyframeCache()
+	}
 
 	c.logger.Debug().Msg("cassette: destroyed")
 }

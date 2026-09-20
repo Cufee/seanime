@@ -2,6 +2,7 @@ package cassette
 
 import (
 	"fmt"
+	"math"
 	"seanime/internal/mediastream/videofile"
 	"strings"
 )
@@ -35,7 +36,7 @@ func GenerateMasterPlaylist(info *videofile.MediaInfo, ladder []QualityLadderEnt
 			avg, peak := EffectiveBitrate(Original, info.Video.Bitrate)
 			fmt.Fprintf(&b, "AVERAGE-BANDWIDTH=%d,", avg)
 			fmt.Fprintf(&b, "BANDWIDTH=%d,", peak)
-			fmt.Fprintf(&b, "RESOLUTION=%dx%d,", info.Video.Width, info.Video.Height)
+			fmt.Fprintf(&b, "RESOLUTION=%dx%d,", entry.Width, entry.Height)
 			codec := transcodedCodec
 			if entry.OriginalCanTransmux && info.Video.MimeCodec != nil {
 				codec = *info.Video.MimeCodec
@@ -94,6 +95,10 @@ func writeAudioTracks(b *strings.Builder, info *videofile.MediaInfo, token strin
 
 // GenerateVariantPlaylist builds a variant playlist listing every segment
 func GenerateVariantPlaylist(ki *KeyframeIndex, duration float64, token string) string {
+	return generateVariantPlaylist(ki, duration, token, false)
+}
+
+func generateVariantPlaylist(ki *KeyframeIndex, duration float64, token string, vod bool) string {
 	tokenSuffix := ""
 	if token != "" {
 		tokenSuffix = "?token=" + token
@@ -102,21 +107,36 @@ func GenerateVariantPlaylist(ki *KeyframeIndex, duration float64, token string) 
 
 	b.WriteString("#EXTM3U\n")
 	b.WriteString("#EXT-X-VERSION:6\n")
-	b.WriteString("#EXT-X-PLAYLIST-TYPE:EVENT\n")
+	if vod {
+		b.WriteString("#EXT-X-PLAYLIST-TYPE:VOD\n")
+	} else {
+		b.WriteString("#EXT-X-PLAYLIST-TYPE:EVENT\n")
+	}
 	b.WriteString("#EXT-X-START:TIME-OFFSET=0\n")
-	b.WriteString("#EXT-X-TARGETDURATION:4\n")
+	targetDuration := 4.0
+	if vod {
+		length, _ := ki.Length()
+		for i := int32(0); i < length; i++ {
+			end := duration
+			if i+1 < length {
+				end = ki.Get(i + 1)
+			}
+			targetDuration = math.Max(targetDuration, math.Ceil(end-ki.Get(i)))
+		}
+	}
+	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%.0f\n", targetDuration)
 	b.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n")
 	b.WriteString("#EXT-X-INDEPENDENT-SEGMENTS\n")
 
 	length, isDone := ki.Length()
 	for seg := int32(0); seg < length-1; seg++ {
-		fmt.Fprintf(&b, "#EXTINF:%.6f\n", ki.Get(seg+1)-ki.Get(seg))
+		fmt.Fprintf(&b, "#EXTINF:%.6f,\n", ki.Get(seg+1)-ki.Get(seg))
 		fmt.Fprintf(&b, "segment-%d.ts%s\n", seg, tokenSuffix)
 	}
 
 	// Final segment, include only when extraction is complete
 	if isDone && length > 0 {
-		fmt.Fprintf(&b, "#EXTINF:%.6f\n", duration-ki.Get(length-1))
+		fmt.Fprintf(&b, "#EXTINF:%.6f,\n", duration-ki.Get(length-1))
 		fmt.Fprintf(&b, "segment-%d.ts%s\n", length-1, tokenSuffix)
 		b.WriteString("#EXT-X-ENDLIST")
 	}

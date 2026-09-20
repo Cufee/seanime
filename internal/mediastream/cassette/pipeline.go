@@ -75,6 +75,10 @@ type Pipeline struct {
 
 	// outPathFmt returns the output path pattern for a given encoder ID.
 	outPathFmt func(encoderID int) string
+
+	streamJobsMu sync.Mutex
+	streamJobs   map[int32]*streamingJob
+	streamJobsWg sync.WaitGroup
 }
 
 // PipelineConfig configures a new pipeline
@@ -91,7 +95,11 @@ type PipelineConfig struct {
 
 // NewPipeline creates a pipeline and initializes its segment table
 func NewPipeline(cfg PipelineConfig) *Pipeline {
-	ctx, cancel := context.WithCancel(context.Background())
+	parentCtx := cfg.Session.ctx
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	length, isDone := cfg.Session.Keyframes.Length()
 	segments := NewSegmentTable(length)
@@ -111,6 +119,7 @@ func NewPipeline(cfg PipelineConfig) *Pipeline {
 		cancel:     cancel,
 		buildArgs:  cfg.BuildArgs,
 		outPathFmt: cfg.OutPathFmt,
+		streamJobs: make(map[int32]*streamingJob),
 	}
 
 	if !isDone {
@@ -164,16 +173,20 @@ func (p *Pipeline) reclaimExistingSegments() {
 
 // GetIndex generates an hls variant playlist for this pipeline's segments
 func (p *Pipeline) GetIndex(token string) (string, error) {
-	return GenerateVariantPlaylist(
+	return generateVariantPlaylist(
 		p.session.Keyframes,
 		float64(p.session.Info.Duration),
 		token,
+		p.session.streaming,
 	), nil
 }
 
 // GetSegment blocks until the requested segment is ready and returns the path
 // to the .ts file on disk
 func (p *Pipeline) GetSegment(ctx context.Context, seg int32) (string, error) {
+	if p.session.streaming {
+		return p.getStreamingSegment(ctx, seg)
+	}
 	// Recreate the kill channel so that a previously-killed pipeline can
 	// service new requests
 	p.killCh = make(chan struct{})
@@ -227,6 +240,10 @@ func (p *Pipeline) segmentPath(seg int32) string {
 // for all processes to fully exit to ensure no files are locked
 func (p *Pipeline) Kill() {
 	p.cancel() // Cancel the global pipeline context
+	// Synchronize with streaming job registration before waiting for processes.
+	p.streamJobsMu.Lock()
+	p.streamJobsMu.Unlock()
+	p.streamJobsWg.Wait()
 	p.headsMu.Lock()
 	for i := range p.heads {
 		p.killHeadLocked(i)

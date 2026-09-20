@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"mime"
+	"net/url"
 	"path/filepath"
 	"seanime/internal/util/filecache"
 	"strconv"
@@ -30,6 +31,8 @@ type MediaInfo struct {
 	Size uint64 `json:"size"`
 	// The length of the media in seconds
 	Duration float32 `json:"duration"`
+	// The original container timestamp of the first media packet, in seconds.
+	StartTime float64 `json:"startTime,omitempty"`
 	// The container of the video file of this episode
 	Container *string `json:"container"`
 	// The video codec and information
@@ -178,6 +181,10 @@ func (e *MediaInfoExtractor) GetInfo(ffprobePath, path string) (mi *MediaInfo, e
 var ffprobeOnce sync.Once
 
 func FfprobeGetInfo(ffprobePath, path, hash string) (*MediaInfo, error) {
+	return FfprobeGetInfoContext(context.Background(), ffprobePath, path, hash)
+}
+
+func FfprobeGetInfoContext(ctx context.Context, ffprobePath, path, hash string) (*MediaInfo, error) {
 
 	if ffprobePath != "" {
 		ffprobeOnce.Do(func() {
@@ -185,7 +192,7 @@ func FfprobeGetInfo(ffprobePath, path, hash string) (*MediaInfo, error) {
 		})
 	}
 
-	ffprobeCtx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	ffprobeCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
 
 	data, err := ffprobe.ProbeURL(ffprobeCtx, path)
@@ -193,7 +200,11 @@ func FfprobeGetInfo(ffprobePath, path, hash string) (*MediaInfo, error) {
 		return nil, err
 	}
 
-	ext := filepath.Ext(path)[1:]
+	extPath := path
+	if u, err := url.Parse(path); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
+		extPath = u.Path
+	}
+	ext := strings.TrimPrefix(filepath.Ext(extPath), ".")
 
 	sizeUint64, _ := strconv.ParseUint(data.Format.Size, 10, 64)
 
@@ -203,6 +214,7 @@ func FfprobeGetInfo(ffprobePath, path, hash string) (*MediaInfo, error) {
 		Extension: ext,
 		Size:      sizeUint64,
 		Duration:  float32(data.Format.DurationSeconds),
+		StartTime: data.Format.StartTimeSeconds,
 		Container: cmp.Or(new(data.Format.FormatName), nil),
 	}
 
