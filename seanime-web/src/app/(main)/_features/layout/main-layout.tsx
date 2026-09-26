@@ -1,4 +1,5 @@
 import { ScanProgressBar } from "@/app/(main)/_features/anime-library/_containers/scan-progress-bar"
+import NativePlayerWrapper from "@/app/(main)/_features/native-player/native-player-lazy-wrapper"
 import { ScannerModal } from "@/app/(main)/_features/anime-library/_containers/scanner-modal"
 import { ErrorExplainer } from "@/app/(main)/_features/error-explainer/error-explainer"
 import { IssueReport } from "@/app/(main)/_features/issue-report/issue-report"
@@ -45,7 +46,6 @@ import { RateLimitLoader } from "../rate-limit-loader"
 import { TopIndefiniteLoader } from "../top-indefinite-loader"
 
 const MpvCoreLazyWrapper = React.lazy(() => import("@/app/(main)/_features/mpv-core/mpv-core-lazy-wrapper"))
-const NativePlayerLazyWrapper = React.lazy(() => import("@/app/(main)/_features/native-player/native-player-lazy-wrapper"))
 
 export const MainLayout = ({ children }: { children: React.ReactNode }) => {
     const serverStatus = useServerStatus()
@@ -74,7 +74,7 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => {
                 {__isElectronDesktop__ && serverStatus?.settings?.mediaPlayer?.mpvPrismEnabled ? (
                     <MpvCoreLazyWrapper />
                 ) : (
-                    <NativePlayerLazyWrapper />
+                    <NativePlayerWrapper />
                 )}
             </React.Suspense>
             <NakamaManager />

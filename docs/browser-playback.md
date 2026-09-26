@@ -19,6 +19,9 @@ require system media codecs.
 
 ## Behavior and limits
 
+- Browser torrents use the online streaming layout: an inline player, episode
+  sidebar, list/grid selector, and theater mode. Torrent auto-selection and
+  manual selection remain available above the player.
 - Compatible H.264 video can be remuxed. Other sources are converted to H.264/AAC,
   with converted video limited to 1080p/30fps and audio to stereo.
 - Seeking requests the needed segments directly. Missing torrent pieces can

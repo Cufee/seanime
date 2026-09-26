@@ -324,14 +324,14 @@ export function AnimeEntryPage() {
                 data-anime-entry-page-content-container
                 className={cn(
                     "px-4 md:px-8 relative z-[8]",
-                    (currentView === "onlinestream" && vc_fullscreen) && "z-[100]",
+                    ((currentView === "onlinestream" || currentView === "torrentstream") && vc_fullscreen) && "z-[100]",
                 )}
             >
                 <PageWrapper
                     data-anime-entry-page-content
                     className={cn(
                         "relative 2xl:order-first pb-10 lg:min-h-[calc(100vh-10rem)]",
-                        (currentView === "onlinestream" && vc_fullscreen) && "z-[100]",
+                        ((currentView === "onlinestream" || currentView === "torrentstream") && vc_fullscreen) && "z-[100]",
                     )}
                     {...ENTRY_VIEW_SHELL_TRANSITION}
                 >
@@ -387,7 +387,7 @@ export function AnimeEntryPage() {
                             key="online-streaming-episodes"
                             className={cn(
                                 "relative 2xl:order-first pb-10 lg:pt-0",
-                                (currentView === "onlinestream" && vc_fullscreen) && "z-[100]",
+                                ((currentView === "onlinestream" || currentView === "torrentstream") && vc_fullscreen) && "z-[100]",
                             )}
                             {...ENTRY_VIEW_TRANSITION}
                         >

@@ -140,6 +140,7 @@ export function VideoCoreInlineHelperUpdateProgressButton() {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 const vc_inlineLayoutTheaterMode = atomWithStorage("sea-video-core-theater-mode", false)
+export const vc_inlineEpisodeViewMode = atomWithStorage<"list" | "grid">("sea-onlinestream-episode-view-mode", "list")
 
 export type VideoCoreInlineLayoutProps = {
     mediaId?: string | number

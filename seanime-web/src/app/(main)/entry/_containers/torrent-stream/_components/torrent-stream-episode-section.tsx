@@ -5,6 +5,7 @@ import { EpisodeGridItem } from "@/app/(main)/_features/anime/_components/episod
 import { MediaEpisodeInfoModal } from "@/app/(main)/_features/media/_components/media-episode-info-modal"
 import { PluginEpisodeGridItemMenuItems } from "@/app/(main)/_features/plugin/actions/plugin-actions"
 import { EpisodeListPaginatedGrid } from "@/app/(main)/entry/_components/episode-list-grid"
+import { EpisodePillsGrid } from "@/app/(main)/_features/video-core/_components/episode-pills-grid"
 import { usePlayNextVideoOnMount } from "@/app/(main)/entry/_lib/handle-play-on-mount"
 import { episodeCardCarouselItemClass } from "@/components/shared/classnames"
 import { IconButton } from "@/components/ui/button"
@@ -24,6 +25,10 @@ type TorrentStreamEpisodeSectionProps = {
     onPlayNextEpisodeOnMount: (episode: Anime_Episode) => void
     bottomSection?: React.ReactNode
     contextType: "torrentstream" | "debridstream" | string // used for plugin context menu item filtering
+    inline?: boolean
+    currentEpisodeNumber?: number | null
+    viewMode?: "list" | "grid"
+    disabled?: boolean
 }
 
 export function TorrentStreamEpisodeSection(props: TorrentStreamEpisodeSectionProps) {
@@ -37,6 +42,10 @@ export function TorrentStreamEpisodeSection(props: TorrentStreamEpisodeSectionPr
         bottomSection,
         onPlayExternallyEpisodeClick,
         contextType,
+        inline = false,
+        currentEpisodeNumber,
+        viewMode = "list",
+        disabled = false,
         ...rest
     } = props
 
@@ -66,6 +75,51 @@ export function TorrentStreamEpisodeSection(props: TorrentStreamEpisodeSectionPr
     }, !!episodesToWatch[0])
 
     if (!entry || !episodeCollection) return null
+
+    if (inline) {
+        const episodes = episodeCollection.episodes ?? []
+        if (viewMode === "grid") return <EpisodePillsGrid
+            episodes={episodes.map(ep => ({ id: String(ep.episodeNumber), number: ep.episodeNumber, title: ep.episodeTitle, isFiller: ep.episodeMetadata?.isFiller }))}
+            currentEpisodeNumber={currentEpisodeNumber ?? null}
+            onEpisodeSelect={number => {
+                const episode = episodes.find(ep => ep.episodeNumber === number)
+                if (episode) onEpisodeClick(episode)
+            }}
+            progress={entry.listData?.progress}
+            disabled={disabled}
+            getEpisodeId={ep => `episode-${ep.number}`}
+        />
+        return <div className="space-y-3">
+            {episodes.map(episode => <EpisodeGridItem
+                key={`${episode.type}-${episode.aniDBEpisode}`}
+                id={`episode-${episode.episodeNumber}`}
+                media={entry.media!}
+                title={episode.displayTitle}
+                episodeTitle={episode.episodeTitle}
+                image={episode.episodeMetadata?.image || entry.media?.coverImage?.large}
+                description={episode.episodeMetadata?.overview}
+                isSelected={episode.episodeNumber === currentEpisodeNumber}
+                isWatched={!!entry.listData?.progress && entry.listData.progress >= episode.progressNumber}
+                isFiller={episode.episodeMetadata?.isFiller}
+                episodeNumber={episode.episodeNumber}
+                progressNumber={episode.progressNumber}
+                watchedProgress={entry.listData?.progress}
+                disabled={disabled}
+                className="flex-none w-full"
+                onClick={() => onEpisodeClick(episode)}
+                action={<>
+                    <MediaEpisodeInfoModal title={episode.displayTitle} image={episode.episodeMetadata?.image} episodeTitle={episode.episodeTitle} summary={episode.episodeMetadata?.overview} />
+                    <DropdownMenu trigger={<IconButton icon={<BiDotsHorizontal />} intent="gray-basic" size="xs" />}>
+                        {onPlayExternallyEpisodeClick && <DropdownMenuItem onClick={() => onPlayExternallyEpisodeClick(episode)}>
+                            <LuTvMinimalPlay /> Play externally
+                        </DropdownMenuItem>}
+                        <PluginEpisodeGridItemMenuItems isDropdownMenu={false} type={contextType} episode={episode} />
+                    </DropdownMenu>
+                </>}
+            />)}
+            {!!episodes.length && <p className="text-center text-[--muted] py-2">End</p>}
+        </div>
+    }
 
     return (
         <>

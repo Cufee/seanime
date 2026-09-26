@@ -4,7 +4,7 @@ import { NativePlayer } from "./native-player"
 
 export default function NativePlayerLazyWrapper() {
     return (
-        <VideoCoreProvider key="native-player" id="native-player">
+        <VideoCoreProvider key="native-player" id="native-player" keepMounted>
             <NativePlayer />
         </VideoCoreProvider>
     )

@@ -9,18 +9,21 @@ import { vc_subtitleManager } from "@/app/(main)/_features/video-core/video-core
 import { VideoCore } from "@/app/(main)/_features/video-core/video-core"
 import { vc_miniPlayer } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { vc_videoElement } from "@/app/(main)/_features/video-core/video-core-atoms"
+import { vc_activePlayerId } from "@/app/(main)/_features/video-core/video-core-atoms"
 import { VideoCoreLifecycleState } from "@/app/(main)/_features/video-core/video-core.atoms"
 import { clientIdAtom } from "@/app/websocket-provider"
 import { logger } from "@/lib/helpers/debug"
 import { WSEvents } from "@/lib/server/ws-events"
+import { __isElectronDesktop__ } from "@/types/constants"
 import { useQueryClient } from "@tanstack/react-query"
-import { useAtom, useAtomValue } from "jotai"
+import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import React from "react"
+import { createPortal } from "react-dom"
 import { toast } from "sonner"
 import { useWebsocketMessageListener, useWebsocketSender } from "../../_hooks/handle-websockets"
 import { useSkipData } from "../video-core/_lib/aniskip"
 import { getSubtitleEvents, isSubtitleBatchCurrent } from "./native-player-subtitles"
-import { nativePlayer_stateAtom } from "./native-player.atoms"
+import { nativePlayer_inlineSlotAtom, nativePlayer_openAtom, nativePlayer_stateAtom, nativePlayer_watchAtom } from "./native-player.atoms"
 
 const log = logger("NATIVE PLAYER")
 
@@ -34,6 +37,21 @@ export function NativePlayer() {
 
     const videoElement = useAtomValue(vc_videoElement)
     const [state, setState] = useAtom(nativePlayer_stateAtom)
+    const watch = useSetAtom(nativePlayer_watchAtom)
+    const open = useSetAtom(nativePlayer_openAtom)
+    const [activePlayer, setActivePlayer] = useAtom(vc_activePlayerId)
+    const terminateTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+    function cancelPendingTermination() {
+        if (terminateTimer.current !== null) clearTimeout(terminateTimer.current)
+        terminateTimer.current = null
+    }
+
+    React.useEffect(() => cancelPendingTermination, [])
+    const inlineSlot = useAtomValue(nativePlayer_inlineSlotAtom)
+    const inline = !__isElectronDesktop__ && !!inlineSlot && (!state.playbackInfo || (
+        state.playbackInfo.streamType === "torrent" && state.playbackInfo.media?.id === inlineSlot.mediaId
+    ))
     const [miniPlayer, setMiniPlayer] = useAtom(vc_miniPlayer)
     const subtitleManager = useAtomValue(vc_subtitleManager)
     const _preserveMiniPlayerRef = React.useRef(false)
@@ -158,16 +176,11 @@ export function NativePlayer() {
                 // 1. Open and await
                 // The server is loading the stream
                 case "open-and-await":
+                    cancelPendingTermination()
                     log.info("Open and await event received", { payload })
                     resetSubtitleState("")
                     _preserveMiniPlayerRef.current = state.active && miniPlayer
-                    setState(draft => {
-                        draft.active = true
-                        draft.loadingState = payload as string
-                        draft.playbackInfo = null
-                        draft.playbackError = null
-                        return
-                    })
+                    open(payload as string)
                     if (!_preserveMiniPlayerRef.current) {
                         setMiniPlayer(false)
                     }
@@ -178,6 +191,8 @@ export function NativePlayer() {
                     resetSubtitleState("")
                     _preserveMiniPlayerRef.current = false
                     if (!(payload as string)) {
+                        cancelPendingTermination()
+                        setActivePlayer(current => current === "native-player" ? null : current)
                         setMiniPlayer(true)
                         setState(draft => {
                             draft.active = false
@@ -194,7 +209,8 @@ export function NativePlayer() {
                         draft.playbackInfo = null
                         return
                     })
-                    setTimeout(() => {
+                    cancelPendingTermination()
+                    terminateTimer.current = setTimeout(() => {
                         handleTerminateStream()
                     }, 3000)
 
@@ -202,15 +218,11 @@ export function NativePlayer() {
                 // 2. Watch
                 // We received the playback info
                 case "watch":
+                    cancelPendingTermination()
                     log.info("Watch event received", { payload })
                     const playbackInfo = payload as NativePlayer_PlaybackInfo
                     resetSubtitleState(playbackInfo.id)
-                    setState(draft => {
-                        draft.playbackInfo = playbackInfo
-                        draft.loadingState = null
-                        draft.playbackError = null
-                        return
-                    })
+                    watch(playbackInfo)
                     if (!_preserveMiniPlayerRef.current) {
                         setMiniPlayer(false)
                     }
@@ -295,11 +307,13 @@ export function NativePlayer() {
             return
         })
 
-        setTimeout(() => {
+        cancelPendingTermination()
+        terminateTimer.current = setTimeout(() => {
             setState(draft => {
                 draft.active = false
                 return
             })
+            setActivePlayer(current => current === "native-player" ? null : current)
         }, 700)
 
         sendMessage({
@@ -337,10 +351,14 @@ export function NativePlayer() {
         }
     }, [state])
 
-    return (
+    // Keep the event listener alive while another player owns the screen.
+    if (activePlayer !== null && activePlayer !== "native-player") return null
+
+    const player = (
         <>
             <VideoCore
                 id="native-player"
+                inline={inline}
                 state={ps}
                 aniSkipData={aniSkipData}
                 onTerminateStream={handleTerminateStream}
@@ -354,4 +372,13 @@ export function NativePlayer() {
             />
         </>
     )
+
+    if (inline && inlineSlot) {
+        return createPortal(state.active ? player : (
+            <div className="flex h-full items-center justify-center text-[--muted]">
+                Select an episode to start torrent streaming.
+            </div>
+        ), inlineSlot.element)
+    }
+    return player
 }

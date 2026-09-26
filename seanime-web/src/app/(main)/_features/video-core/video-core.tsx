@@ -195,7 +195,7 @@ export const vc_audioManager = atom<VideoCoreAudioManager | null>(null)
 export const vc_previewManager = atom<VideoCorePreviewManager | null>(null)
 export const vc_anime4kManager = atom<VideoCoreAnime4KManager | null>(null)
 
-export function VideoCoreProvider(props: { id: string, children: React.ReactNode }) {
+export function VideoCoreProvider(props: { id: string, children: React.ReactNode, keepMounted?: boolean }) {
     const { children } = props
 
     const [activePlayer, setActivePlayer] = useAtom(vc_activePlayerId)
@@ -208,11 +208,11 @@ export function VideoCoreProvider(props: { id: string, children: React.ReactNode
         setNativePlayerState(nativePlayer_initialState)
 
         return () => {
-            setActivePlayer(null)
+            setActivePlayer(current => current === props.id ? null : current)
         }
     }, [])
 
-    if (activePlayer !== null && activePlayer !== props.id) return null
+    if (!props.keepMounted && activePlayer !== null && activePlayer !== props.id) return null
 
     return (
         <ScopeProvider
@@ -834,14 +834,16 @@ export function VideoCore(props: VideoCoreProps) {
 
     // Track if this player should dispatch terminated event on unmount
     React.useEffect(() => {
-        shouldDispatchTerminatedOnUnmount.current = (activePlayer === props.id && !!state.playbackInfo)
+        // NativePlayer owns termination and can move between its inline slot and
+        // drawer without ending the server stream.
+        shouldDispatchTerminatedOnUnmount.current = (props.id !== "native-player" && activePlayer === props.id && !!state.playbackInfo)
     }, [activePlayer, props.id, state.playbackInfo?.id])
 
     // Call dispatchTerminatedEvent on unmount if this was the active player
     useUnmount(() => {
         if (shouldDispatchTerminatedOnUnmount.current) {
             dispatchTerminatedEvent()
-            setActivePlayer(null)
+            setActivePlayer(current => current === props.id ? null : current)
         }
     })
 

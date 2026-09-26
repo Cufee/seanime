@@ -27,6 +27,7 @@ import {
     VideoCoreInlineHelpers,
     VideoCoreInlineHelperUpdateProgressButton,
     VideoCoreInlineLayout,
+    vc_inlineEpisodeViewMode,
 } from "@/app/(main)/_features/video-core/video-core-inline-helpers"
 import { vc_useLibassRendererAtom, VideoCore_VideoPlaybackInfo, VideoCore_VideoSource } from "@/app/(main)/_features/video-core/video-core.atoms"
 import { useServerHMACAuth } from "@/app/(main)/_hooks/use-server-status"
@@ -57,7 +58,6 @@ import { usePathname, useRouter, useSearchParams } from "@/lib/navigation"
 import { useWindowSize } from "@uidotdev/usehooks"
 import { AxiosError } from "axios"
 import { useAtom, useAtomValue } from "jotai/react"
-import { atomWithStorage } from "jotai/utils"
 import uniq from "lodash/uniq"
 import uniqBy from "lodash/uniqBy"
 import { AnimatePresence, motion } from "motion/react"
@@ -80,7 +80,7 @@ type OnlinestreamPageProps = {
 const log = logger("ONLINESTREAM")
 
 // Episode view mode atom
-export const __onlineStream_episodeViewModeAtom = atomWithStorage<"list" | "grid">("sea-onlinestream-episode-view-mode", "list")
+export const __onlineStream_episodeViewModeAtom = vc_inlineEpisodeViewMode
 
 function isValidVideoSourceType(type: string | null | undefined) {
     if (!type) return false
